@@ -4,6 +4,10 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,11 +28,14 @@ import com.naver.maps.geometry.LatLng
 import com.naver.maps.map.MapView
 import com.naver.maps.map.NaverMap
 import com.naver.maps.map.overlay.Marker
+import com.naver.maps.map.util.FusedLocationSource
+import com.naver.maps.map.LocationTrackingMode
 import kotlinx.coroutines.launch
 
 @Composable
 fun NaverMapScreen() {
     val context = LocalContext.current
+    val activity = context as? Activity
     val lifecycleOwner = LocalLifecycleOwner.current
     val mapView = remember { MapView(context) }
     var naverMap: NaverMap? by remember { mutableStateOf(null) }
@@ -37,6 +44,7 @@ fun NaverMapScreen() {
         LocationServices.getFusedLocationProviderClient(context)
     }
     val scope = rememberCoroutineScope()
+    var showPermissionDialog by remember { mutableStateOf(false) }
 
     // 위치 권한 확인
     val hasLocationPermission = remember {
@@ -44,6 +52,45 @@ fun NaverMapScreen() {
             context,
             Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    // 권한 요청 다이얼로그
+    if (showPermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { showPermissionDialog = false },
+            title = { Text("위치 권한 필요") },
+            text = { Text("현재 위치를 표시하기 위해 위치 권한이 필요합니다.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showPermissionDialog = false
+                        (context as? Activity)?.let { activity ->
+                            ActivityCompat.requestPermissions(
+                                activity,
+                                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                                1000
+                            )
+                        }
+                    }
+                ) {
+                    Text("권한 요청")
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = {
+                        showPermissionDialog = false
+                        // 설정 화면으로 이동
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.fromParts("package", context.packageName, null)
+                        }
+                        context.startActivity(intent)
+                    }
+                ) {
+                    Text("설정으로 이동")
+                }
+            }
+        )
     }
 
     // 위치 업데이트 요청
@@ -70,6 +117,8 @@ fun NaverMapScreen() {
             } catch (e: SecurityException) {
                 e.printStackTrace()
             }
+        } else {
+            showPermissionDialog = true
         }
     }
 
@@ -103,6 +152,11 @@ fun NaverMapScreen() {
                 map.uiSettings.apply {
                     isLocationButtonEnabled = true
                     isZoomControlEnabled = true
+                }
+                // 위치 추적 활성화
+                if (activity != null) {
+                    map.locationSource = FusedLocationSource(activity, 1000)
+                    map.locationTrackingMode = LocationTrackingMode.Follow
                 }
                 // 현재 위치가 있으면 마커 추가
                 currentLocation?.let { location ->
@@ -138,17 +192,14 @@ fun MainScreen(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(vertical = 16.dp)
         )
-        
         Text(
             text = "로그인된 이메일: $userEmail",
             fontSize = 16.sp,
             modifier = Modifier.padding(bottom = 24.dp)
         )
-        
         // 네이버 지도 추가
         NaverMapScreen()
         Spacer(modifier = Modifier.height(24.dp))
-        
         Button(
             onClick = onLogout,
             modifier = Modifier

@@ -20,6 +20,9 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // 네이버 지도 클라이언트 ID 설정
+        manifestPlaceholders["naver.map.client.id"] = project.findProperty("naver.map.client.id") as String? ?: ""
     }
 
     buildTypes {
@@ -61,9 +64,9 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("com.naver.maps:map-sdk:3.18.0")
-    implementation("androidx.compose.runtime:runtime-livedata:1.5.4")
-    implementation("com.google.android.gms:play-services-location:21.1.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
+    implementation("io.github.fornewid:naver-map-compose:1.7.4")
+    implementation("io.github.fornewid:naver-map-location:21.0.2")
+    implementation("com.google.android.gms:play-services-location:21.0.1")
     implementation("com.kakao.sdk:v2-user:2.19.0")
     implementation("com.kakao.sdk:v2-share:2.19.0")
     implementation("com.kakao.sdk:v2-talk:2.19.0")
