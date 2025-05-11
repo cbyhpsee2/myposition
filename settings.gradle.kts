@@ -3,19 +3,18 @@ pluginManagement {
         google()
         mavenCentral()
         gradlePluginPortal()
-        maven { url = uri("https://plugins.gradle.org/m2/") }
-    }
-    plugins {
-        id("org.jetbrains.kotlin.plugin.compose") version "2.0.1"
+        maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
     }
 }
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
-        maven { url = uri("https://repository.map.naver.com/archive/maven") }
-        maven { url = uri("https://devrepo.kakao.com/nexus/content/groups/public/") }
+        maven("https://repository.map.naver.com/archive/maven")
+        maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
+        maven("https://devrepo.kakao.com/nexus/content/groups/public/")
     }
 }
 
