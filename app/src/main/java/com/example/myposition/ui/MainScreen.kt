@@ -31,7 +31,7 @@ import com.naver.maps.map.util.MarkerIcons
 
 @SuppressLint("MissingPermission")
 @Composable
-fun NaverMapScreen() {
+fun NaverMapScreen(onLocationChanged: (Double, Double) -> Unit, onLocationError: (String) -> Unit) {
     val context = LocalContext.current
     val mapView = remember { MapView(context) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -66,6 +66,7 @@ fun NaverMapScreen() {
                     updateLocation(naverMap, location, currentMarker) { newMarker ->
                         currentMarker = newMarker
                     }
+                    onLocationChanged(location.latitude, location.longitude)
                 } else {
                     val locationRequest = LocationRequest.create().apply {
                         priority = LocationRequest.PRIORITY_HIGH_ACCURACY
@@ -79,14 +80,18 @@ fun NaverMapScreen() {
                                 updateLocation(naverMap, loc, currentMarker) { newMarker ->
                                     currentMarker = newMarker
                                 }
+                                onLocationChanged(loc.latitude, loc.longitude)
                             } else {
                                 Log.d("NAVER_MAP", "requestLocationUpdates: 위치 정보 없음")
+                                onLocationError("위치 정보를 가져올 수 없습니다.")
                             }
                             fusedLocationClient.removeLocationUpdates(this)
                         }
                     }
                     fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, null)
                 }
+            }.addOnFailureListener { exception ->
+                onLocationError("위치 정보 에러: ${exception.message}")
             }
         })
     }
@@ -129,8 +134,35 @@ private fun updateLocation(naverMap: com.naver.maps.map.NaverMap, location: Loca
 @Composable
 fun MainScreen(
     userEmail: String,
-    onLogout: () -> Unit
+    userNickname: String,
+    userPassword: String = "",
+    onLogout: () -> Unit,
+    userInfo: String,
+    userId: Int,
+    userJson: String
 ) {
+    val apiService = remember { com.example.myposition.api.RetrofitClient.apiService }
+    var errorLog by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+    var sentToServer by remember { mutableStateOf(false) }
+    var latitude by remember { mutableStateOf<Double?>(null) }
+    var longitude by remember { mutableStateOf<Double?>(null) }
+    var locationError by remember { mutableStateOf("") }
+    
+    // userJson에서 user_id 파싱
+    val parsedUserId = remember(userJson) {
+        if (userJson.isNotEmpty()) {
+            try {
+                val jsonObject = org.json.JSONObject(userJson)
+                jsonObject.getInt("user_id")
+            } catch (e: Exception) {
+                -1
+            }
+        } else {
+            -1
+        }
+    }
+    
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -143,24 +175,135 @@ fun MainScreen(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(vertical = 16.dp)
         )
-        
         Text(
-            text = "로그인된 이메일: $userEmail",
+            text = "ID: $parsedUserId",
             fontSize = 16.sp,
-            modifier = Modifier.padding(bottom = 24.dp)
+            modifier = Modifier.padding(vertical = 8.dp)
         )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(bottom = 24.dp)
+        ) {
+            Column {
+                Text(
+                    text = "이메일: $userEmail",
+                    fontSize = 16.sp,
+                )
+                Text(
+                    text = "닉네임: $userNickname",
+                    fontSize = 16.sp,
+                )
+                Text(
+                    text = "사용자 ID: $parsedUserId",
+                    fontSize = 16.sp,
+                )
+                Text(
+                    text = "위도: ${latitude ?: "정보 없음"}",
+                    fontSize = 16.sp,
+                )
+                Text(
+                    text = "경도: ${longitude ?: "정보 없음"}",
+                    fontSize = 16.sp,
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(
+                onClick = onLogout,
+                modifier = Modifier
+                    .height(32.dp)
+                    .defaultMinSize(minWidth = 1.dp)
+            ) {
+                Text("로그아웃", fontSize = 12.sp)
+            }
+        }
         
         // 네이버 지도 추가
-        NaverMapScreen()
+        NaverMapScreen(
+            onLocationChanged = { lat, lng ->
+                latitude = lat
+                longitude = lng
+            },
+            onLocationError = { error ->
+                locationError = error
+            }
+        )
+        // 지도 아래에 서버에서 받은 JSON 데이터 표시
+        if (userJson.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "서버에서 받은 사용자 정보:",
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+            Text(
+                text = userJson,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
         Spacer(modifier = Modifier.height(24.dp))
-        
+        // 위치 정보 전송 버튼 추가
         Button(
-            onClick = onLogout,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
+            onClick = {
+                val lat = latitude
+                val lng = longitude
+                if (lat != null && lng != null && parsedUserId > 0) {
+                    isLoading = true
+                    errorLog = ""
+                    Log.d("LocationSend", "위치 전송 시도: userId=$parsedUserId, lat=$lat, lng=$lng")
+                    apiService.sendLocation(
+                        userId = parsedUserId.toString(),
+                        latitude = lat,
+                        longitude = lng
+                    ).enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                        override fun onResponse(call: retrofit2.Call<Map<String, Any>>, response: retrofit2.Response<Map<String, Any>>) {
+                            isLoading = false
+                            Log.d("LOCATION_SEND", "Response code: ${response.code()}")
+                            if (!response.isSuccessful) {
+                                errorLog = "서버 오류: ${response.code()}"
+                                Log.e("LOCATION_SEND", "Server error: ${response.code()}")
+                            } else {
+                                val body = response.body()
+                                Log.d("LOCATION_SEND", "Response body: $body")
+                                if (body?.get("success") != true) {
+                                    errorLog = body?.get("error") as? String ?: "위치 전송 실패"
+                                    Log.e("LOCATION_SEND", "Location send failed: $errorLog")
+                                } else {
+                                    errorLog = "" // 성공 시 로그 없음
+                                    sentToServer = true
+                                    Log.d("LOCATION_SEND", "Location sent successfully")
+                                }
+                            }
+                        }
+                        override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
+                            isLoading = false
+                            errorLog = "네트워크 오류: ${t.message}"
+                            Log.e("LOCATION_SEND", "Network error: ${t.message}", t)
+                        }
+                    })
+                } else {
+                    errorLog = "위치 정보가 준비되지 않았습니다. (userId: $parsedUserId, lat: $latitude, lng: $longitude)"
+                    Log.e("LOCATION_SEND", "Location data not ready: userId=$parsedUserId, lat=$latitude, lng=$longitude")
+                }
+            },
+            modifier = Modifier.padding(top = 16.dp)
         ) {
-            Text("로그아웃", fontSize = 16.sp)
+            Text("위치 정보 전송")
+        }
+        if (locationError.isNotEmpty()) {
+            Text(
+                text = locationError,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 12.dp)
+            )
+        }
+        if (errorLog.isNotEmpty()) {
+            Text(
+                text = errorLog,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 12.dp)
+            )
         }
     }
 } 

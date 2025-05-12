@@ -28,7 +28,7 @@ import retrofit2.Callback
 import retrofit2.Response
 
 @Composable
-fun LoginScreen(onLoginClick: (String, String) -> Unit) {
+fun LoginScreen(onLoginClick: (String, String, Int) -> Unit) {
     val context = LocalContext.current
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -122,7 +122,7 @@ fun LoginScreen(onLoginClick: (String, String) -> Unit) {
                 errorMessage = null
 
                 // 서버에 사용자 등록
-                apiService.registerUser(email, password, email.split("@")[0]).enqueue(object : Callback<Map<String, Any>> {
+                apiService.registerUser(email, password, email.split("@")[0], null).enqueue(object : Callback<Map<String, Any>> {
                     override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
                         isLoading = false
                         if (response.isSuccessful) {
@@ -131,7 +131,7 @@ fun LoginScreen(onLoginClick: (String, String) -> Unit) {
                                 val userId = responseBody["user_id"] as? Int
                                 if (userId != null) {
                                     Log.d("LOGIN", "사용자 등록 성공: $userId")
-                                    onLoginClick(email, password)
+                                    onLoginClick(email, password, userId)
                                 } else {
                                     errorMessage = "사용자 ID를 받지 못했습니다"
                                 }
@@ -208,7 +208,7 @@ fun LoginScreen(onLoginClick: (String, String) -> Unit) {
                                                             } else if (user != null) {
                                                                 val email = user.kakaoAccount?.email ?: ""
                                                                 if (email.isNotEmpty()) {
-                                                                    onLoginClick(email, "")
+                                                                    onLoginClick(email, "", -1)
                                                                     Toast.makeText(context, "카카오 로그인 성공!", Toast.LENGTH_SHORT).show()
                                                                 } else {
                                                                     Toast.makeText(context, "이메일 정보를 가져올 수 없습니다.", Toast.LENGTH_SHORT).show()
@@ -232,7 +232,7 @@ fun LoginScreen(onLoginClick: (String, String) -> Unit) {
                                                     } else if (user != null) {
                                                         val email = user.kakaoAccount?.email ?: ""
                                                         if (email.isNotEmpty()) {
-                                                            onLoginClick(email, "")
+                                                            onLoginClick(email, "", -1)
                                                             Toast.makeText(context, "카카오 로그인 성공!", Toast.LENGTH_SHORT).show()
                                                         } else {
                                                             Toast.makeText(context, "이메일 정보를 가져올 수 없습니다.", Toast.LENGTH_SHORT).show()
@@ -247,7 +247,7 @@ fun LoginScreen(onLoginClick: (String, String) -> Unit) {
                                 // 이미 로그인된 상태인 경우
                                 val email = user.kakaoAccount?.email ?: ""
                                 if (email.isNotEmpty()) {
-                                    onLoginClick(email, "")
+                                    onLoginClick(email, "", -1)
                                     Toast.makeText(context, "카카오 로그인 성공!", Toast.LENGTH_SHORT).show()
                                 } else {
                                     // 이메일 정보가 없는 경우 추가 동의 요청
@@ -262,7 +262,7 @@ fun LoginScreen(onLoginClick: (String, String) -> Unit) {
                                                 } else if (user != null) {
                                                     val newEmail = user.kakaoAccount?.email ?: ""
                                                     if (newEmail.isNotEmpty()) {
-                                                        onLoginClick(newEmail, "")
+                                                        onLoginClick(newEmail, "", -1)
                                                         Toast.makeText(context, "카카오 로그인 성공!", Toast.LENGTH_SHORT).show()
                                                     } else {
                                                         Toast.makeText(context, "이메일 정보를 가져올 수 없습니다.", Toast.LENGTH_SHORT).show()
