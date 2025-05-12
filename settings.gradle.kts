@@ -6,7 +6,7 @@ pluginManagement {
         maven { url = uri("https://plugins.gradle.org/m2/") }
     }
     plugins {
-        id("org.jetbrains.kotlin.plugin.compose") version "2.0.1"
+        id("org.jetbrains.kotlin.plugin.compose") version "2.0.21"
     }
 }
 dependencyResolutionManagement {
