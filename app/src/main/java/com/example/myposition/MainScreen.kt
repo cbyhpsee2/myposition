@@ -1,185 +1,68 @@
 package com.example.myposition
 
-import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
+import android.annotation.SuppressLint
 import android.location.Location
-import android.app.Activity
-import android.content.Intent
-import android.net.Uri
-import android.provider.Settings
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.app.ActivityCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationResult
 import com.naver.maps.geometry.LatLng
+import com.naver.maps.map.CameraUpdate
 import com.naver.maps.map.MapView
-import com.naver.maps.map.NaverMap
-import com.naver.maps.map.overlay.Marker
-import com.naver.maps.map.util.FusedLocationSource
-import com.naver.maps.map.LocationTrackingMode
-import kotlinx.coroutines.launch
+import com.naver.maps.map.OnMapReadyCallback
 
+@SuppressLint("MissingPermission")
 @Composable
-fun NaverMapScreen() {
+fun MainScreen() {
     val context = LocalContext.current
-    val activity = context as? Activity
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val mapView = remember { MapView(context) }
-    var naverMap: NaverMap? by remember { mutableStateOf(null) }
-    var currentLocation: Location? by remember { mutableStateOf(null) }
-    val fusedLocationClient: FusedLocationProviderClient = remember {
-        LocationServices.getFusedLocationProviderClient(context)
-    }
-    val scope = rememberCoroutineScope()
-    var showPermissionDialog by remember { mutableStateOf(false) }
+    var mapView by remember { mutableStateOf<MapView?>(null) }
 
-    // 위치 권한 확인
-    val hasLocationPermission = remember {
-        ActivityCompat.checkSelfPermission(
-            context,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-    }
-
-    // 권한 요청 다이얼로그
-    if (showPermissionDialog) {
-        AlertDialog(
-            onDismissRequest = { showPermissionDialog = false },
-            title = { Text("위치 권한 필요") },
-            text = { Text("현재 위치를 표시하기 위해 위치 권한이 필요합니다.") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showPermissionDialog = false
-                        (context as? Activity)?.let { activity ->
-                            ActivityCompat.requestPermissions(
-                                activity,
-                                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
-                                1000
-                            )
+    LaunchedEffect(mapView) {
+        mapView?.getMapAsync(OnMapReadyCallback { naverMap ->
+            val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+            fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
+                if (location != null) {
+                    val latLng = LatLng(location.latitude, location.longitude)
+                    Log.d("NAVER_MAP", "lastLocation: ${latLng.latitude}, ${latLng.longitude}")
+                    naverMap.moveCamera(CameraUpdate.scrollTo(latLng))
+                    naverMap.uiSettings.isLocationButtonEnabled = true
+                } else {
+                    // lastLocation이 null이면 requestLocationUpdates로 위치 요청
+                    val locationRequest = LocationRequest.create().apply {
+                        priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+                        interval = 1000
+                        numUpdates = 1
+                    }
+                    val locationCallback = object : LocationCallback() {
+                        override fun onLocationResult(result: LocationResult) {
+                            val loc = result.lastLocation
+                            if (loc != null) {
+                                val latLng = LatLng(loc.latitude, loc.longitude)
+                                Log.d("NAVER_MAP", "requestLocationUpdates: ${latLng.latitude}, ${latLng.longitude}")
+                                naverMap.moveCamera(CameraUpdate.scrollTo(latLng))
+                                naverMap.uiSettings.isLocationButtonEnabled = true
+                            } else {
+                                Log.d("NAVER_MAP", "requestLocationUpdates: 위치 정보 없음")
+                            }
+                            fusedLocationClient.removeLocationUpdates(this)
                         }
                     }
-                ) {
-                    Text("권한 요청")
-                }
-            },
-            dismissButton = {
-                Button(
-                    onClick = {
-                        showPermissionDialog = false
-                        // 설정 화면으로 이동
-                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = Uri.fromParts("package", context.packageName, null)
-                        }
-                        context.startActivity(intent)
-                    }
-                ) {
-                    Text("설정으로 이동")
+                    fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, null)
                 }
             }
-        )
+        })
     }
 
-    // 위치 업데이트 요청
-    LaunchedEffect(hasLocationPermission) {
-        if (hasLocationPermission) {
-            try {
-                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                    location?.let {
-                        currentLocation = it
-                        // 위치가 업데이트되면 마커 추가
-                        naverMap?.let { map ->
-                            val marker = Marker()
-                            marker.position = LatLng(location.latitude, location.longitude)
-                            marker.map = map
-                            // 카메라 이동
-                            map.moveCamera(
-                                com.naver.maps.map.CameraUpdate.scrollTo(
-                                    LatLng(location.latitude, location.longitude)
-                                )
-                            )
-                        }
-                    }
-                }
-            } catch (e: SecurityException) {
-                e.printStackTrace()
-            }
-        } else {
-            showPermissionDialog = true
-        }
-    }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_CREATE -> mapView.onCreate(null)
-                Lifecycle.Event.ON_START -> mapView.onStart()
-                Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
-                Lifecycle.Event.ON_STOP -> mapView.onStop()
-                Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
-                else -> {}
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-
-    AndroidView(
-        factory = { mapView },
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(300.dp),
-        update = { view ->
-            view.getMapAsync { map ->
-                naverMap = map
-                // 지도 설정
-                map.uiSettings.apply {
-                    isLocationButtonEnabled = true
-                    isZoomControlEnabled = true
-                }
-                // 위치 추적 활성화
-                if (activity != null) {
-                    map.locationSource = FusedLocationSource(activity, 1000)
-                    map.locationTrackingMode = LocationTrackingMode.Follow
-                }
-                // 현재 위치가 있으면 마커 추가
-                currentLocation?.let { location ->
-                    val marker = Marker()
-                    marker.position = LatLng(location.latitude, location.longitude)
-                    marker.map = map
-                    // 카메라 이동
-                    map.moveCamera(
-                        com.naver.maps.map.CameraUpdate.scrollTo(
-                            LatLng(location.latitude, location.longitude)
-                        )
-                    )
-                }
-            }
-        }
-    )
-}
-
-@Composable
-fun MainScreen(
-    userEmail: String,
-    onLogout: () -> Unit
-) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -187,26 +70,18 @@ fun MainScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "환영합니다!",
+            text = "네이버 지도 예제",
             fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(vertical = 16.dp)
         )
-        Text(
-            text = "로그인된 이메일: $userEmail",
-            fontSize = 16.sp,
-            modifier = Modifier.padding(bottom = 24.dp)
-        )
-        // 네이버 지도 추가
-        NaverMapScreen()
-        Spacer(modifier = Modifier.height(24.dp))
-        Button(
-            onClick = onLogout,
+        Spacer(modifier = Modifier.height(16.dp))
+        AndroidView(
+            factory = { ctx ->
+                MapView(ctx).also { mapView = it }
+            },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
-        ) {
-            Text("로그아웃", fontSize = 16.sp)
-        }
+                .weight(1f)
+        )
     }
 } 
