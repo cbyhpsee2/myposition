@@ -25,6 +25,9 @@ import com.google.android.gms.location.LocationResult
 import com.naver.maps.geometry.LatLng
 import com.naver.maps.map.CameraUpdate
 import com.naver.maps.map.OnMapReadyCallback
+import com.naver.maps.map.overlay.Marker
+import com.naver.maps.map.overlay.OverlayImage
+import com.naver.maps.map.util.MarkerIcons
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -32,6 +35,7 @@ fun NaverMapScreen() {
     val context = LocalContext.current
     val mapView = remember { MapView(context) }
     val lifecycleOwner = LocalLifecycleOwner.current
+    var currentMarker by remember { mutableStateOf<Marker?>(null) }
 
     DisposableEffect(lifecycleOwner) {
         val lifecycle = lifecycleOwner.lifecycle
@@ -59,10 +63,9 @@ fun NaverMapScreen() {
             val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
             fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
                 if (location != null) {
-                    val latLng = LatLng(location.latitude, location.longitude)
-                    Log.d("NAVER_MAP", "lastLocation: ${latLng.latitude}, ${latLng.longitude}")
-                    naverMap.moveCamera(CameraUpdate.scrollTo(latLng))
-                    naverMap.uiSettings.isLocationButtonEnabled = true
+                    updateLocation(naverMap, location, currentMarker) { newMarker ->
+                        currentMarker = newMarker
+                    }
                 } else {
                     val locationRequest = LocationRequest.create().apply {
                         priority = LocationRequest.PRIORITY_HIGH_ACCURACY
@@ -73,10 +76,9 @@ fun NaverMapScreen() {
                         override fun onLocationResult(result: LocationResult) {
                             val loc = result.lastLocation
                             if (loc != null) {
-                                val latLng = LatLng(loc.latitude, loc.longitude)
-                                Log.d("NAVER_MAP", "requestLocationUpdates: ${latLng.latitude}, ${latLng.longitude}")
-                                naverMap.moveCamera(CameraUpdate.scrollTo(latLng))
-                                naverMap.uiSettings.isLocationButtonEnabled = true
+                                updateLocation(naverMap, loc, currentMarker) { newMarker ->
+                                    currentMarker = newMarker
+                                }
                             } else {
                                 Log.d("NAVER_MAP", "requestLocationUpdates: 위치 정보 없음")
                             }
@@ -95,6 +97,33 @@ fun NaverMapScreen() {
             .fillMaxWidth()
             .height(300.dp)
     )
+}
+
+private fun updateLocation(naverMap: com.naver.maps.map.NaverMap, location: Location, currentMarker: Marker?, onMarkerCreated: (Marker) -> Unit) {
+    val latLng = LatLng(location.latitude, location.longitude)
+    Log.d("NAVER_MAP", "위치 업데이트: ${latLng.latitude}, ${latLng.longitude}")
+    
+    // 기존 마커 제거
+    currentMarker?.map = null
+    
+    // 새 마커 생성
+    val marker = Marker().apply {
+        position = latLng
+        icon = MarkerIcons.BLACK
+        iconTintColor = android.graphics.Color.RED
+        width = 50
+        height = 50
+        captionText = "현재 위치"
+        captionMinZoom = 12.0
+        map = naverMap
+    }
+    
+    // 카메라 이동
+    naverMap.moveCamera(CameraUpdate.scrollTo(latLng))
+    naverMap.uiSettings.isLocationButtonEnabled = true
+    
+    // 마커 생성 콜백
+    onMarkerCreated(marker)
 }
 
 @Composable
