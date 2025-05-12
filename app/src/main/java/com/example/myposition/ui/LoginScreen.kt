@@ -20,12 +20,22 @@ import com.example.myposition.R
 import com.kakao.sdk.user.UserApiClient
 import androidx.compose.ui.platform.LocalContext
 import android.util.Log
+import com.example.myposition.api.ApiService
+import com.example.myposition.api.RetrofitClient
+import kotlinx.coroutines.launch
+import retrofit2.Call
+import retrofit2.Callback
+import retrofit2.Response
 
 @Composable
 fun LoginScreen(onLoginClick: (String, String) -> Unit) {
     val context = LocalContext.current
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val apiService = remember { RetrofitClient.apiService }
 
     Column(
         modifier = Modifier
@@ -93,15 +103,66 @@ fun LoginScreen(onLoginClick: (String, String) -> Unit) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        if (errorMessage != null) {
+            Text(
+                text = errorMessage!!,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+        }
+
         // 로그인 버튼
         Button(
-            onClick = { onLoginClick(email, password) },
+            onClick = {
+                if (email.isBlank() || password.isBlank()) {
+                    errorMessage = "이메일과 비밀번호를 입력해주세요"
+                    return@Button
+                }
+                isLoading = true
+                errorMessage = null
+
+                // 서버에 사용자 등록
+                apiService.registerUser(email, password, email.split("@")[0]).enqueue(object : Callback<Map<String, Any>> {
+                    override fun onResponse(call: Call<Map<String, Any>>, response: Response<Map<String, Any>>) {
+                        isLoading = false
+                        if (response.isSuccessful) {
+                            val responseBody = response.body()
+                            if (responseBody?.get("success") == true) {
+                                val userId = responseBody["user_id"] as? Int
+                                if (userId != null) {
+                                    Log.d("LOGIN", "사용자 등록 성공: $userId")
+                                    onLoginClick(email, password)
+                                } else {
+                                    errorMessage = "사용자 ID를 받지 못했습니다"
+                                }
+                            } else {
+                                errorMessage = responseBody?.get("error") as? String ?: "로그인 실패"
+                            }
+                        } else {
+                            errorMessage = "서버 오류: ${response.code()}"
+                        }
+                    }
+
+                    override fun onFailure(call: Call<Map<String, Any>>, t: Throwable) {
+                        isLoading = false
+                        errorMessage = "네트워크 오류: ${t.message}"
+                        Log.e("LOGIN", "API 호출 실패", t)
+                    }
+                })
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            shape = RoundedCornerShape(8.dp)
+            enabled = !isLoading
         ) {
-            Text("로그인", fontSize = 16.sp)
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            } else {
+                Text("로그인", fontSize = 16.sp)
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
