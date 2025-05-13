@@ -60,6 +60,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.rememberBottomSheetScaffoldState
+import androidx.compose.foundation.clickable
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -167,12 +168,13 @@ fun NaverMapScreen(
 
     // 선택된 위치로 카메라 이동
     LaunchedEffect(selectedLatLngTriple) {
-        Log.d("NAVER_MAP", "LaunchedEffect(selectedLatLngTriple): $selectedLatLngTriple, map=$map")
+        Log.d("NAV_DEBUG", "selectedLatLngTriple 변경: $selectedLatLngTriple")
         if (map == null) {
             Log.e("NAVER_MAP", "지도 객체(map)가 아직 초기화되지 않았음")
         }
         selectedLatLngTriple?.let { (lat, lng, _) ->
             map?.moveCamera(CameraUpdate.scrollTo(LatLng(lat, lng)))
+            Log.d("NAV_DEBUG", "지도 moveCamera 실행: $lat, $lng")
         }
     }
 }
@@ -421,7 +423,9 @@ fun MainScreen(
                     )
                 } catch (e: Exception) { null }
             },
+            selectedLatLngTriple = selectedLatLngTriple,
             onFriendNavigate = { loc ->
+                Log.d("NAV_DEBUG", "onFriendNavigate 호출: $loc")
                 selectedLatLngTriple = Triple(loc.latitude, loc.longitude, System.currentTimeMillis())
             },
             searchQuery = searchQuery,
@@ -534,6 +538,7 @@ fun MainScreen(
                     }
                 })
             },
+            onShowMessage = { successMessage = it },
             modifier = Modifier.padding(innerPadding)
         )
     }
@@ -546,6 +551,7 @@ fun FriendLocationScreen(
     myLocation: LatLng?,
     friends: List<com.example.myposition.model.Friend>,
     friendLocations: List<com.example.myposition.model.FriendLocation>,
+    selectedLatLngTriple: Triple<Double, Double, Long>?,
     onFriendNavigate: (com.example.myposition.model.FriendLocation) -> Unit,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
@@ -554,6 +560,7 @@ fun FriendLocationScreen(
     onSearch: () -> Unit,
     onAddFriend: (Map<String, Any>) -> Unit,
     onDeleteFriend: (com.example.myposition.model.Friend) -> Unit,
+    onShowMessage: (String) -> Unit,
     modifier: Modifier
 ) {
     var showSearch by remember { mutableStateOf(false) }
@@ -568,7 +575,7 @@ fun FriendLocationScreen(
                     "longitude" to it.longitude
                 )
             },
-            selectedLatLngTriple = null,
+            selectedLatLngTriple = selectedLatLngTriple,
             onLocationChanged = { _, _ -> },
             onLocationError = { _ -> }
         )
@@ -637,8 +644,19 @@ fun FriendLocationScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Column {
-                                            Text(user["nickname"] as? String ?: "", fontWeight = FontWeight.Bold)
-                                            Text(user["email"] as? String ?: "", fontSize = 12.sp, color = Color.Gray)
+                                            Text(
+                                                user["nickname"] as? String ?: "",
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.clickable {
+                                                    if (userGid != null) onFriendNavigate(com.example.myposition.model.FriendLocation(
+                                                        gid = userGid,
+                                                        nickname = user["nickname"] as? String ?: "",
+                                                        latitude = user["latitude"] as? Double ?: 0.0,
+                                                        longitude = user["longitude"] as? Double ?: 0.0,
+                                                        updatedAt = ""
+                                                    ))
+                                                }
+                                            )
                                         }
                                         when {
                                             isMe -> {
@@ -680,8 +698,19 @@ fun FriendLocationScreen(
                                 Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(40.dp).clip(CircleShape))
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Text(friend.nickname, fontWeight = FontWeight.Bold)
-                                    Text(friend.email ?: "", fontSize = 12.sp, color = Color.Gray)
+                                    Text(
+                                        friend.nickname,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.clickable {
+                                            Log.d("NAV_DEBUG", "닉네임 클릭: ${friend.nickname}, loc=$loc")
+                                            if (loc != null) onFriendNavigate(loc)
+                                        }
+                                    )
+                                }
+                                IconButton(onClick = {
+                                    onShowMessage(friend.email ?: "")
+                                }) {
+                                    Icon(Icons.Default.Email, contentDescription = "이메일 보기")
                                 }
                                 Text(distanceKm, color = Color.Blue, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 8.dp))
                                 IconButton(onClick = { onDeleteFriend(friend) }) {
