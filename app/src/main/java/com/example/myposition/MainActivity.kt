@@ -52,11 +52,11 @@ class MainActivity : ComponentActivity() {
         Log.d("APP_INFO", "Package Name: $packageName")
         
         // 카카오 SDK 초기화
-        KakaoSdk.init(this, "4a2137f151bca1f758c598c726fbf78b")
+         KakaoSdk.init(applicationContext, "4a2137f151bca1f758c598c726fbf78b")
         
         // 키해시 로그 출력
-        val keyHash = Utility.getKeyHash(this)
-        Log.d("KAKAO_KEY_HASH", "keyHash: $keyHash")
+        // val keyHash = Utility.getKeyHash(this)
+        // Log.d("KAKAO_KEY_HASH", "keyHash: $keyHash")
         
         enableEdgeToEdge()
         
@@ -64,87 +64,29 @@ class MainActivity : ComponentActivity() {
             var isLoggedIn by remember { mutableStateOf(false) }
             var userEmail by remember { mutableStateOf("") }
             var userNickname by remember { mutableStateOf("") }
-            var userPassword by remember { mutableStateOf("") }
-            var autoLoginChecked by remember { mutableStateOf(false) }
             var userId by remember { mutableStateOf(-1) }
-            var userInfo by remember { mutableStateOf("") }
-            var userJson by remember { mutableStateOf("") }
-            val context = this
-            val apiService = com.example.myposition.api.RetrofitClient.apiService
-            
-            // 자동로그인 체크 (최초 1회)
-            if (!autoLoginChecked) {
-                autoLoginChecked = true
-                UserApiClient.instance.me { user, error ->
-                    if (user != null) {
-                        userEmail = user.kakaoAccount?.email ?: ""
-                        userNickname = user.kakaoAccount?.profile?.nickname ?: userEmail.substringBefore("@")
-                        userPassword = "kakao"
-                        val kakaoUid = user.id?.toString() ?: ""
-                        // Send user information to the server
-                        apiService.registerUser(userEmail, userPassword, userNickname, kakaoUid).enqueue(object : retrofit2.Callback<Map<String, Any>> {
-                            override fun onResponse(call: retrofit2.Call<Map<String, Any>>, response: retrofit2.Response<Map<String, Any>>) {
-                                if (response.isSuccessful) {
-                                    val body = response.body()
-                                    Log.d("USER_INFO", "서버 응답 body: $body")
-                                    userId = body?.get("user_id") as? Int ?: -1
-                                    Log.d("USER_INFO", "userId from server: $userId")
-                                    userInfo = "ID: $userId, Email: $userEmail, Nickname: $userNickname"
-                                    userJson = body.toString()
-                                    Log.d("USER_INFO", userInfo)
-                                    isLoggedIn = true
-                                } else {
-                                    Log.e("USER_INFO", "Failed to register user: ${response.code()}")
-                                }
-                            }
-                            override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
-                                Log.e("USER_INFO", "Network error: ${t.message}")
-                            }
-                        })
-                    }
-                }
-            }
-            
             MyPositionTheme {
-                if (isLoggedIn) {
+                if (!isLoggedIn) {
+                    LoginScreen(onLoginSuccess = { email, nickname, id ->
+                        userEmail = email
+                        userNickname = nickname
+                        userId = id
+                        isLoggedIn = true
+                    })
+                } else {
                     MainScreen(
                         userEmail = userEmail,
                         userNickname = userNickname,
-                        userPassword = userPassword,
+                        userPassword = "",
                         onLogout = {
-                            // 카카오 로그아웃
-                            UserApiClient.instance.logout { error ->
-                                if (error != null) {
-                                    Log.e("Logout", "로그아웃 실패: ${error.message}")
-                                } else {
-                                    isLoggedIn = false
-                                    userEmail = ""
-                                    userNickname = ""
-                                    userPassword = ""
-                                    userId = -1
-                                    userInfo = ""
-                                    userJson = ""
-                                    Log.d("USER_INFO", "Logged out, userId reset to: $userId")
-                                }
-                            }
+                            isLoggedIn = false
+                            userEmail = ""
+                            userNickname = ""
+                            userId = -1
                         },
-                        userInfo = userInfo,
+                        userInfo = "",
                         userId = userId,
-                        userJson = userJson
-                    )
-                } else {
-                    LoginScreen(
-                        onLoginClick = { email, password, id ->
-                            if (email.isNotEmpty()) {
-                                userEmail = email
-                                userNickname = email.substringBefore("@")
-                                userPassword = password
-                                userId = id
-                                userInfo = "Email: $email, Nickname: ${email.substringBefore("@")}" 
-                                Log.d("USER_INFO", "Login click, userId set to: $userId")
-                                isLoggedIn = true
-                            }
-                        }
+                        userJson = ""
                     )
                 }
             }

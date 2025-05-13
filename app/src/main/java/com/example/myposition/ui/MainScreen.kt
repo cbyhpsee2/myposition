@@ -32,12 +32,17 @@ import com.naver.maps.map.util.MarkerIcons
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import com.example.myposition.model.Friend
+import com.example.myposition.model.FriendsListResponse
 
 @SuppressLint("MissingPermission")
 @Composable
 fun NaverMapScreen(
     userNickname: String,
     friendLocations: List<Map<String, Any>>,
+    selectedLatLngTriple: Triple<Double, Double, Long>?,
     onLocationChanged: (Double, Double) -> Unit,
     onLocationError: (String) -> Unit
 ) {
@@ -136,6 +141,17 @@ fun NaverMapScreen(
             }
         }
     }
+
+    // 선택된 위치로 카메라 이동
+    LaunchedEffect(selectedLatLngTriple) {
+        Log.d("NAVER_MAP", "LaunchedEffect(selectedLatLngTriple): $selectedLatLngTriple, map=$map")
+        if (map == null) {
+            Log.e("NAVER_MAP", "지도 객체(map)가 아직 초기화되지 않았음")
+        }
+        selectedLatLngTriple?.let { (lat, lng, _) ->
+            map?.moveCamera(CameraUpdate.scrollTo(LatLng(lat, lng)))
+        }
+    }
 }
 
 private fun updateLocation(
@@ -196,34 +212,30 @@ fun MainScreen(
     var isSearching by remember { mutableStateOf(false) }
     
     // 친구 관리 상태
-    var friendList by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
+    var friendList by remember { mutableStateOf<List<Friend>>(emptyList()) }
     var isFriendsLoading by remember { mutableStateOf(false) }
     
     // 친구 위치 상태
     var friendLocations by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var isFriendLocationsLoading by remember { mutableStateOf(false) }
     
-    // userJson에서 user_id 파싱
-    val parsedUserId = remember(userJson) {
-        if (userJson.isNotEmpty()) {
-            try {
-                val jsonObject = org.json.JSONObject(userJson)
-                jsonObject.getInt("user_id")
-            } catch (e: Exception) {
-                Log.e("UserParsing", "사용자 정보 파싱 실패", e)
-                -1
-            }
-        } else {
-            -1
-        }
-    }
+    // 상태를 Triple<Double, Double, Long>?로 관리
+    var selectedLatLngTriple by remember { mutableStateOf<Triple<Double, Double, Long>?>(null) }
+
+    // 탭 상태 (0: 검색, 1: 목록)
+    var selectedTabIndex by remember { mutableStateOf(0) }
+    // 이메일 보기 상태
+    var selectedEmail by remember { mutableStateOf<String?>(null) }
+
+    // userId 직접 사용
+    val gid = userId
 
     // 위치 변경 감지 및 전송을 위한 LaunchedEffect
-    LaunchedEffect(parsedUserId, latitude, longitude) {
+    LaunchedEffect(gid, latitude, longitude) {
         val currentLat = latitude
         val currentLng = longitude
         
-        if (currentLat != null && currentLng != null && parsedUserId > 0) {
+        if (currentLat != null && currentLng != null && gid > 0) {
             val lastLocation = lastSentLocation
             val isSignificantChange = lastLocation == null || 
                 Math.abs(currentLat - lastLocation.first) > 0.0001 || 
@@ -232,7 +244,7 @@ fun MainScreen(
             if (isSignificantChange) {
                 isLocationChanged = true
                 lastSentLocation = Pair(currentLat, currentLng)
-                Log.d("LocationSend", "위치 변경 감지: userId=$parsedUserId, lat=$currentLat, lng=$currentLng")
+                Log.d("LocationSend", "위치 변경 감지: gid=$gid, lat=$currentLat, lng=$currentLng")
             }
         }
     }
@@ -243,10 +255,10 @@ fun MainScreen(
             while (true) {
                 val lat = latitude
                 val lng = longitude
-                if (lat != null && lng != null && parsedUserId > 0) {
-                    Log.d("LocationSend", "주기적 위치 전송: userId=$parsedUserId, lat=$lat, lng=$lng")
+                if (lat != null && lng != null && gid > 0) {
+                    Log.d("LocationSend", "주기적 위치 전송: gid=$gid, lat=$lat, lng=$lng")
                     apiService.sendLocation(
-                        userId = parsedUserId.toString(),
+                        gid = gid,
                         latitude = lat,
                         longitude = lng
                     ).enqueue(object : retrofit2.Callback<Map<String, Any>> {
@@ -268,6 +280,63 @@ fun MainScreen(
     }
     
     var successMessage by remember { mutableStateOf("") }
+
+    // 친구 목록 로드 함수
+    val loadFriendsList = {
+        isFriendsLoading = true
+        Log.d("FriendList", "내gid $gid")
+        apiService.getFriendsList(gid).enqueue(object : retrofit2.Callback<FriendsListResponse> {
+            override fun onResponse(call: retrofit2.Call<FriendsListResponse>, response: retrofit2.Response<FriendsListResponse>) {
+                isFriendsLoading = false
+                val body = response.body()
+                Log.d("FriendList", "친구 목록 raw body: $body")
+                if (response.isSuccessful && body != null && body.success) {
+                    friendList = body.friends ?: emptyList()
+                    // 친구 위치도 함께 로드
+                    apiService.getFriendsLocations(gid).enqueue(object : retrofit2.Callback<com.example.myposition.model.FriendLocationResponse> {
+                        override fun onResponse(
+                            call: retrofit2.Call<com.example.myposition.model.FriendLocationResponse>,
+                            response: retrofit2.Response<com.example.myposition.model.FriendLocationResponse>
+                        ) {
+                            isFriendLocationsLoading = false
+                            val locBody = response.body()
+                            Log.d("FriendLoc", "getFriendsLocations 응답 body: $locBody")
+                            if (response.isSuccessful && locBody != null && locBody.success) {
+                                try {
+                                    friendLocations = locBody.locations.map { loc ->
+                                        mapOf(
+                                            "gid" to loc.gid,
+                                            "nickname" to loc.nickname,
+                                            "latitude" to loc.latitude,
+                                            "longitude" to loc.longitude
+                                        )
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("FriendLoc", "친구 위치 파싱 실패", e)
+                                    friendLocations = emptyList()
+                                }
+                            } else {
+                                Log.e("FriendLoc", "친구 위치 로드 실패")
+                            }
+                        }
+                        override fun onFailure(
+                            call: retrofit2.Call<com.example.myposition.model.FriendLocationResponse>,
+                            t: Throwable
+                        ) {
+                            isFriendLocationsLoading = false
+                            Log.e("FriendLoc", "네트워크 오류: ${t.message}", t)
+                        }
+                    })
+                } else {
+                    Log.e("FriendList", "친구 목록 갱신 실패: $body")
+                }
+            }
+            override fun onFailure(call: retrofit2.Call<FriendsListResponse>, t: Throwable) {
+                isFriendsLoading = false
+                Log.e("FriendList", "친구 목록 네트워크 오류: ${t.message}", t)
+            }
+        })
+    }
 
     Column(
         modifier = Modifier
@@ -295,11 +364,12 @@ fun MainScreen(
                 Text("로그아웃", fontSize = 12.sp)
             }
         }
-        
+
         // 네이버 지도
         NaverMapScreen(
             userNickname = userNickname,
             friendLocations = friendLocations,
+            selectedLatLngTriple = selectedLatLngTriple,
             onLocationChanged = { lat, lng ->
                 latitude = lat
                 longitude = lng
@@ -309,173 +379,193 @@ fun MainScreen(
             }
         )
 
-        // 친구 검색 UI
+        // 탭: 친구검색 / 친구목록
         Spacer(modifier = Modifier.height(16.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+        val tabs = listOf("친구검색", "친구목록")
+        TabRow(
+            selectedTabIndex = selectedTabIndex,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(end = 8.dp),
-                placeholder = { Text("이메일 또는 닉네임으로 검색") },
-                singleLine = true
-            )
-            Button(
-                onClick = {
-                    isSearching = true
-                    apiService.searchUsers(
-                        keyword = searchQuery,
-                        userId = parsedUserId.toString()
-                    ).enqueue(object : retrofit2.Callback<Map<String, Any>> {
-                        override fun onResponse(
-                            call: retrofit2.Call<Map<String, Any>>,
-                            response: retrofit2.Response<Map<String, Any>>
-                        ) {
-                            isSearching = false
-                            Log.d("UserSearch", "응답 코드: ${response.code()}")
-                            Log.d("UserSearch", "응답 바디: ${response.body()}")
-                            if (response.isSuccessful) {
-                                val body = response.body()
-                                if (body != null && body["success"] == true) {
-                                    @Suppress("UNCHECKED_CAST")
-                                    val users = body["users"] as? List<Map<String, Any>> ?: emptyList()
-                                    Log.d("UserSearch", "검색된 사용자 수: ${users.size}")
-                                    users.forEachIndexed { index, user ->
-                                        Log.d("UserSearch", "사용자 $index: $user")
-                                    }
-                                    searchResults = users
-                                } else {
-                                    val errorMsg = body?.get("error") as? String ?: "검색 실패"
-                                    Log.e("UserSearch", "검색 실패: $errorMsg")
-                                    errorLog = errorMsg
-                                }
-                            } else {
-                                val errorMsg = "검색 실패: ${response.code()}"
-                                Log.e("UserSearch", errorMsg)
-                                errorLog = errorMsg
-                            }
-                        }
-                        override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
-                            isSearching = false
-                            val errorMsg = "네트워크 오류: ${t.message}"
-                            Log.e("UserSearch", errorMsg, t)
-                            errorLog = errorMsg
-                        }
-                    })
-                },
-                enabled = searchQuery.isNotEmpty() && !isSearching
-            ) {
-                Text("검색")
+            tabs.forEachIndexed { index, title ->
+                Tab(
+                    selected = selectedTabIndex == index,
+                    onClick = { selectedTabIndex = index }
+                ) { Text(text = title) }
             }
         }
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // 검색 결과 리스트
-        if (isSearching) {
-            CircularProgressIndicator(
-                modifier = Modifier.padding(16.dp)
-            )
-        } else if (searchResults.isNotEmpty()) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            ) {
-                items(searchResults) { user ->
-                    Log.d("UserData", "사용자 데이터: $user")  // 사용자 데이터 로깅
-                    Card(
+        // 친구 검색 UI (탭 0)
+        if (selectedTabIndex == 0) {
+            // 친구 검색 UI
+            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp),
+                    placeholder = { Text("이메일 또는 닉네임으로 검색") },
+                    singleLine = true
+                )
+                Button(
+                    onClick = {
+                        isSearching = true
+                        apiService.searchUsers(
+                            keyword = searchQuery,
+                            gid = gid
+                        ).enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                            override fun onResponse(
+                                call: retrofit2.Call<Map<String, Any>>,
+                                response: retrofit2.Response<Map<String, Any>>
+                            ) {
+                                isSearching = false
+                                Log.d("UserSearch", "응답 코드: ${response.code()}")
+                                Log.d("UserSearch", "응답 바디: ${response.body()}")
+                                if (response.isSuccessful) {
+                                    val body = response.body()
+                                    if (body != null && body["success"] == true) {
+                                        @Suppress("UNCHECKED_CAST")
+                                        val users = body["users"] as? List<Map<String, Any>> ?: emptyList()
+                                        Log.d("UserSearch", "검색된 사용자 수: ${users.size}")
+                                        users.forEachIndexed { index, user ->
+                                            Log.d("UserSearch", "사용자 $index: $user")
+                                        }
+                                        searchResults = users
+                                    } else {
+                                        val errorMsg = body?.get("error") as? String ?: "검색 실패"
+                                        Log.e("UserSearch", "검색 실패: $errorMsg")
+                                        errorLog = errorMsg
+                                    }
+                                } else {
+                                    val errorMsg = "검색 실패: ${response.code()}"
+                                    Log.e("UserSearch", errorMsg)
+                                    errorLog = errorMsg
+                                }
+                            }
+                            override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
+                                isSearching = false
+                                val errorMsg = "네트워크 오류: ${t.message}"
+                                Log.e("UserSearch", errorMsg, t)
+                                errorLog = errorMsg
+                            }
+                        })
+                    },
+                    enabled = searchQuery.isNotEmpty() && !isSearching
+                ) {
+                    Text("검색")
+                }
+            }
+
+            // 검색 결과 리스트
+                if (isSearching) {
+                CircularProgressIndicator(
+                    modifier = Modifier.padding(16.dp)
+                )
+            } else if (searchResults.isNotEmpty()) {
+                    LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                    ) {
-                        Row(
+                        .weight(1f)
+                ) {
+                    items(searchResults) { user ->
+                        Log.d("UserData", "사용자 데이터: $user")  // 사용자 데이터 로깅
+                        Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(vertical = 4.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                         ) {
-                            Column {
-                                Text(
-                                    text = user["nickname"] as? String ?: "",
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = user["email"] as? String ?: "",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Button(
-                                onClick = {
-                                    // user_id 대신 id 필드 확인
-                                    Log.d("FriendAdd", "id 타입: ${user["id"]?.javaClass?.name}")
-                                    val friendId = when (val id = user["id"]) {
-                                        is Int -> id
-                                        is Long -> id.toInt()
-                                        is String -> id.toIntOrNull()
-                                        else -> null
-                                    }
-                                    Log.d("FriendAdd", "사용자 데이터: $user")
-                                    Log.d("FriendAdd", "추출된 friendId: $friendId")
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = user["nickname"] as? String ?: "",
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = user["email"] as? String ?: "",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Button(
+                                    onClick = {
+                                        // user_id 대신 id 필드 확인
+                                        Log.d("FriendAdd", "gid 타입: ${user["gid"]?.javaClass?.name}")
+                                        val friendGid = when (val id = user["gid"]) {
+                                            is Int -> id
+                                            is Long -> id.toInt()
+                                            is String -> id.toIntOrNull()
+                                            else -> null
+                                        }
+                                        Log.d("FriendAdd", "사용자 데이터: $user")
+                                        Log.d("FriendAdd", "추출된 friendGid: $friendGid")
 
-                                    if (friendId != null) {
-                                        Log.d("FriendAdd", "친구 추가 시도: userId=$parsedUserId, friendId=$friendId")
-                                        apiService.addFriend(
-                                            userId = parsedUserId.toString(),
-                                            friendId = friendId.toString() // Int를 String으로 변환
-                                        ).enqueue(object : retrofit2.Callback<Map<String, Any>> {
-                                            override fun onResponse(
-                                                call: retrofit2.Call<Map<String, Any>>,
-                                                response: retrofit2.Response<Map<String, Any>>
-                                            ) {
-                                                Log.d("FriendAdd", "응답 코드: ${response.code()}")
-                                                Log.d("FriendAdd", "응답 바디: ${response.body()}")
-                                                if (response.isSuccessful) {
-                                                    val body = response.body()
-                                                    Log.d("FriendAdd", "응답 데이터: $body")
-                                                    if (body != null && body["success"] == true) {
-                                                        // 친구 추가 성공 처리
-                                                        searchResults = searchResults.filter { it != user }
-                                                        successMessage = "${user["nickname"]}님이 친구로 추가되었습니다."
-                                                        // 3초 후 성공 메시지 제거
-                                                        MainScope().launch {
-                                                            kotlinx.coroutines.delay(3000)
-                                                            successMessage = ""
+                                        if (friendGid != null) {
+                                            Log.d("FriendAdd", "친구 추가 시도: gid=$gid, friendGid=$friendGid")
+                                            apiService.addFriend(
+                                                gid = gid,
+                                                friendGid = friendGid
+                                            ).enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                                                override fun onResponse(
+                                                    call: retrofit2.Call<Map<String, Any>>,
+                                                    response: retrofit2.Response<Map<String, Any>>
+                                                ) {
+                                                    Log.d("FriendAdd", "응답 코드: ${response.code()}")
+                                                    Log.d("FriendAdd", "응답 바디: ${response.body()}")
+                                                    if (response.isSuccessful) {
+                                                        val body = response.body()
+                                                        Log.d("FriendAdd", "응답 데이터: $body")
+                                                        if (body != null && body["success"] == true) {
+                                                            // 친구 추가 성공 처리 및 목록 갱신
+                                                            searchResults = searchResults.filter { it != user }
+                                                            loadFriendsList()
+                                                            successMessage = "${user["nickname"]}님이 친구로 추가되었습니다."
+                                                            // 3초 후 성공 메시지 제거
+                                                            MainScope().launch {
+                                                                kotlinx.coroutines.delay(3000)
+                                                                successMessage = ""
+                                                            }
+                                                        } else {
+                                                            val errorMsg = body?.get("error") as? String ?: "친구 추가 실패"
+                                                            Log.e("FriendAdd", "친구 추가 실패: $errorMsg")
+                                                            errorLog = errorMsg
                                                         }
                                                     } else {
-                                                        val errorMsg = body?.get("error") as? String ?: "친구 추가 실패"
-                                                        Log.e("FriendAdd", "친구 추가 실패: $errorMsg")
+                                                        val errorMsg = "친구 추가 실패: ${response.code()}"
+                                                        Log.e("FriendAdd", errorMsg)
                                                         errorLog = errorMsg
                                                     }
-                                                } else {
-                                                    val errorMsg = "친구 추가 실패: ${response.code()}"
-                                                    Log.e("FriendAdd", errorMsg)
+                                                }
+                                                override fun onFailure(
+                                                    call: retrofit2.Call<Map<String, Any>>,
+                                                    t: Throwable
+                                                ) {
+                                                    val errorMsg = "네트워크 오류: ${t.message}"
+                                                    Log.e("FriendAdd", errorMsg, t)
                                                     errorLog = errorMsg
                                                 }
-                                            }
-                                            override fun onFailure(
-                                                call: retrofit2.Call<Map<String, Any>>,
-                                                t: Throwable
-                                            ) {
-                                                val errorMsg = "네트워크 오류: ${t.message}"
-                                                Log.e("FriendAdd", errorMsg, t)
-                                                errorLog = errorMsg
-                                            }
-                                        })
-                                    } else {
-                                        Log.e("FriendAdd", "friendId 파싱 실패: id=${user["id"]}")
-                                        errorLog = "사용자 ID를 찾을 수 없습니다."
+                                            })
+                                        } else {
+                                            Log.e("FriendAdd", "friendGid 파싱 실패: gid=${user["gid"]}")
+                                            errorLog = "사용자 ID를 찾을 수 없습니다."
+                                        }
                                     }
+                                ) {
+                                    Text("친구 추가")
                                 }
-                            ) {
-                                Text("친구 추가")
                             }
                         }
                     }
@@ -484,98 +574,114 @@ fun MainScreen(
         }
 
         // 친구 목록 초기 로드
-        LaunchedEffect(parsedUserId) {
-            if (parsedUserId > 0) {
-                isFriendsLoading = true
-                apiService.getFriendsList(parsedUserId.toString())
-                    .enqueue(object : retrofit2.Callback<Map<String, Any>> {
-                        override fun onResponse(
-                            call: retrofit2.Call<Map<String, Any>>, 
-                            response: retrofit2.Response<Map<String, Any>>
-                        ) {
-                            isFriendsLoading = false
-                            val body = response.body()
-                            if (response.isSuccessful && body != null && body["success"] == true) {
-                                @Suppress("UNCHECKED_CAST")
-                                friendList = body["friends"] as? List<Map<String, Any>> ?: emptyList()
-                            } else {
-                                Log.e("FriendList", "친구 목록 로드 실패: ${body?.get("error")}")
-                            }
-                        }
-                        override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
-                            isFriendsLoading = false
-                            Log.e("FriendList", "네트워크 오류: ${t.message}", t)
-                        }
-                    })
+        LaunchedEffect(gid) {
+            if (gid > 0) {
+                loadFriendsList()
             }
         }
 
         // 친구 위치 로드
-        LaunchedEffect(parsedUserId) {
-            if (parsedUserId > 0) {
+        LaunchedEffect(gid) {
+            if (gid > 0) {
                 isFriendLocationsLoading = true
-                apiService.getFriendsLocations(parsedUserId.toString())
-                    .enqueue(object : retrofit2.Callback<Map<String, Any>> {
-                        override fun onResponse(
-                            call: retrofit2.Call<Map<String, Any>>, 
-                            response: retrofit2.Response<Map<String, Any>>
-                        ) {
-                            isFriendLocationsLoading = false
-                            val body = response.body()
-                            if (response.isSuccessful && body != null && body["success"] == true) {
-                                @Suppress("UNCHECKED_CAST")
-                                friendLocations = body["friends"] as? List<Map<String, Any>> ?: emptyList()
-                            } else {
-                                Log.e("FriendLoc", "친구 위치 로드 실패: ${body?.get("error")}")
+                apiService.getFriendsLocations(gid).enqueue(object : retrofit2.Callback<com.example.myposition.model.FriendLocationResponse> {
+                    override fun onResponse(
+                        call: retrofit2.Call<com.example.myposition.model.FriendLocationResponse>,
+                        response: retrofit2.Response<com.example.myposition.model.FriendLocationResponse>
+                    ) {
+                        isFriendLocationsLoading = false
+                        val locBody = response.body()
+                        Log.d("FriendLoc", "getFriendsLocations 응답 body: $locBody")
+                        if (response.isSuccessful && locBody != null && locBody.success) {
+                            // 데이터 클래스 기반 파싱
+                            friendLocations = locBody.locations.map { loc ->
+                                mapOf(
+                                    "gid" to loc.gid,
+                                    "nickname" to loc.nickname,
+                                    "latitude" to loc.latitude,
+                                    "longitude" to loc.longitude
+                                )
                             }
+                        } else {
+                            Log.e("FriendLoc", "친구 위치 로드 실패")
                         }
-                        override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
-                            isFriendLocationsLoading = false
-                            Log.e("FriendLoc", "네트워크 오류: ${t.message}", t)
-                        }
-                    })
+                    }
+                    override fun onFailure(
+                        call: retrofit2.Call<com.example.myposition.model.FriendLocationResponse>,
+                        t: Throwable
+                    ) {
+                        isFriendLocationsLoading = false
+                        Log.e("FriendLoc", "네트워크 오류: ${t.message}", t)
+                    }
+                })
             }
         }
 
-        // 친구 목록 UI
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(text = "친구 목록", fontWeight = FontWeight.Bold)
-        if (isFriendsLoading) {
-            CircularProgressIndicator(modifier = Modifier.padding(16.dp))
-        } else if (friendList.isEmpty()) {
-            Text(text = "등록된 친구가 없습니다.", modifier = Modifier.padding(8.dp))
-        } else {
-            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                items(friendList) { friend ->
-                    val fid = when (val id = friend["id"]) {
-                        is Int -> id
-                        is Long -> id.toInt()
-                        is String -> id.toIntOrNull()
-                        else -> null
-                    }
-                    Card(modifier = Modifier.fillMaxWidth().padding(4.dp),
-                         elevation = CardDefaults.cardElevation(2.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(text = friend["nickname"] as? String ?: "")
-                                Text(text = friend["email"] as? String ?: "", fontSize = 12.sp)
-                            }
-                            if (fid != null) {
+        // 친구 목록 UI (탭 1)
+        if (selectedTabIndex == 1) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(text = "친구 목록", fontWeight = FontWeight.Bold)
+            if (isFriendsLoading) {
+                CircularProgressIndicator(modifier = Modifier.padding(16.dp))
+            } else if (friendList.isEmpty()) {
+                Text(text = "등록된 친구가 없습니다.", modifier = Modifier.padding(8.dp))
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                    items(friendList) { friend ->
+                        val fid = friend.gid
+                        Card(modifier = Modifier.fillMaxWidth().padding(4.dp),
+                             elevation = CardDefaults.cardElevation(2.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    // 친구 이름 및 위치 버튼
+                                    Log.d("FriendLoc", "Loaded friendLocations: $friendLocations")
+                                    val currentLoc = friendLocations.firstOrNull { loc ->
+                                        val idVal = when {
+                                            loc["gid"] is Number -> (loc["gid"] as Number).toInt()
+                                            loc["user_gid"] is Number -> (loc["user_gid"] as Number).toInt()
+                                            else -> -1
+                                        }
+                                        idVal == fid
+                                    }
+                                    if (currentLoc == null) {
+                                        Log.e("FriendLoc", "친구 위치를 찾을 수 없습니다. friendGid=$fid")
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = friend.nickname,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 16.sp
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        if (currentLoc != null) {
+                                            val flat = (currentLoc["latitude"] as? Number)?.toDouble() ?: 0.0
+                                            val flng = (currentLoc["longitude"] as? Number)?.toDouble() ?: 0.0
+                                            TextButton(onClick = {
+                                                Log.v("FriendLoc", "친구위치버튼 클릭. friendGid=$fid")
+                                                Log.d("FriendLoc", "위치 이동 flat=$flat, flng=$flng")
+                                                selectedLatLngTriple = Triple(flat, flng, System.currentTimeMillis())
+                                            }) {
+                                                Text("위치", fontSize = 12.sp)
+                                            }
+                                        }
+                                    }
+                                }
                                 Button(onClick = {
                                     apiService.deleteFriend(
-                                        userId = parsedUserId.toString(),
-                                        friendId = fid.toString()
+                                        gid = gid,
+                                        friendGid = fid
                                     ).enqueue(object : retrofit2.Callback<Map<String, Any>> {
                                         override fun onResponse(
                                             call: retrofit2.Call<Map<String, Any>>, 
                                             response: retrofit2.Response<Map<String, Any>>
                                         ) {
                                             if (response.isSuccessful && response.body()?.get("success")==true) {
-                                                friendList = friendList.filter { it["id"] != fid }
+                                                loadFriendsList()
+                                                friendList = friendList.filter { it.gid != fid }
                                                 successMessage = "친구가 삭제되었습니다."
                                                 MainScope().launch {
                                                     delay(3000)
@@ -592,11 +698,28 @@ fun MainScreen(
                                 }) {
                                     Text("삭제")
                                 }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(onClick = { selectedEmail = friend.email }) {
+                                    Text("@")
+                                }
                             }
                         }
                     }
                 }
             }
+        }
+
+        // 이메일 AlertDialog
+        if (selectedEmail != null) {
+            AlertDialog(
+                onDismissRequest = { selectedEmail = null },
+                text = { Text(text = selectedEmail ?: "") },
+                confirmButton = {
+                    TextButton(onClick = { selectedEmail = null }) {
+                        Text("확인")
+                    }
+                }
+            )
         }
 
         if (locationError.isNotEmpty()) {

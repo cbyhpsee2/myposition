@@ -10,45 +10,45 @@ interface ApiService {
         @Field("email") email: String,
         @Field("password") password: String,
         @Field("nickname") nickname: String,
-        @Field("user_id") uid: String?
+        @Field("uid") uid: String?
     ): Call<Map<String, Any>>
 
     @FormUrlEncoded
     @POST("upload_location")
     fun sendLocation(
-        @Field("user_id") userId: String,
+        @Field("user_id") gid: Int,
         @Field("latitude") latitude: Double,
         @Field("longitude") longitude: Double
     ): Call<Map<String, Any>>
 
     @GET("friends_list/{user_id}")
     fun getFriendsList(
-        @Path("user_id") userId: String
-    ): Call<Map<String, Any>>
+        @Path("user_id") gid: Int
+    ): Call<com.example.myposition.model.FriendsListResponse>
 
     @GET("friends_locations/{user_id}")
     fun getFriendsLocations(
-        @Path("user_id") userId: String
-    ): Call<Map<String, Any>>
+        @Path("user_id") gid: Int
+    ): Call<com.example.myposition.model.FriendLocationResponse>
 
     @FormUrlEncoded
     @POST("search_users")
     fun searchUsers(
         @Field("keyword") keyword: String,
-        @Field("user_id") userId: String
+        @Field("user_id") gid: Int
     ): Call<Map<String, Any>>
 
     @FormUrlEncoded
     @POST("add_friend")
     fun addFriend(
-        @Field("user_id") userId: String,
-        @Field("friend_id") friendId: String
+        @Field("user_id") gid: Int,
+        @Field("friend_id") friendGid: Int
     ): Call<Map<String, Any>>
 
     @FormUrlEncoded
     @POST("delete_friend")
     fun deleteFriend(
-        @Field("user_id") userId: String,
-        @Field("friend_id") friendId: String
+        @Field("user_id") gid: Int,
+        @Field("friend_id") friendGid: Int
     ): Call<Map<String, Any>>
 } 
