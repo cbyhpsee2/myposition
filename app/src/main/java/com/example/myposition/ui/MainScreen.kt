@@ -31,14 +31,22 @@ import com.naver.maps.map.overlay.Marker
 import com.naver.maps.map.util.MarkerIcons
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 @SuppressLint("MissingPermission")
 @Composable
-fun NaverMapScreen(onLocationChanged: (Double, Double) -> Unit, onLocationError: (String) -> Unit) {
+fun NaverMapScreen(
+    userNickname: String,
+    friendLocations: List<Map<String, Any>>,
+    onLocationChanged: (Double, Double) -> Unit,
+    onLocationError: (String) -> Unit
+) {
     val context = LocalContext.current
     val mapView = remember { MapView(context) }
     val lifecycleOwner = LocalLifecycleOwner.current
     var currentMarker by remember { mutableStateOf<Marker?>(null) }
+    var map by remember { mutableStateOf<com.naver.maps.map.NaverMap?>(null) }
+    var friendMarkers by remember { mutableStateOf<List<Marker>>(emptyList()) }
 
     DisposableEffect(lifecycleOwner) {
         val lifecycle = lifecycleOwner.lifecycle
@@ -62,11 +70,12 @@ fun NaverMapScreen(onLocationChanged: (Double, Double) -> Unit, onLocationError:
     LaunchedEffect(mapView) {
         Log.d("NAVER_MAP", "LaunchedEffect 진입, mapView=$mapView")
         mapView.getMapAsync(OnMapReadyCallback { naverMap ->
+            map = naverMap
             Log.d("NAVER_MAP", "getMapAsync 콜백 진입")
             val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
             fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
                 if (location != null) {
-                    updateLocation(naverMap, location, currentMarker) { newMarker ->
+                    updateLocation(naverMap, location, currentMarker, userNickname) { newMarker ->
                         currentMarker = newMarker
                     }
                     onLocationChanged(location.latitude, location.longitude)
@@ -80,7 +89,7 @@ fun NaverMapScreen(onLocationChanged: (Double, Double) -> Unit, onLocationError:
                         override fun onLocationResult(result: LocationResult) {
                             val loc = result.lastLocation
                             if (loc != null) {
-                                updateLocation(naverMap, loc, currentMarker) { newMarker ->
+                                updateLocation(naverMap, loc, currentMarker, userNickname) { newMarker ->
                                     currentMarker = newMarker
                                 }
                                 onLocationChanged(loc.latitude, loc.longitude)
@@ -105,9 +114,37 @@ fun NaverMapScreen(onLocationChanged: (Double, Double) -> Unit, onLocationError:
             .fillMaxWidth()
             .height(300.dp)
     )
+
+    // 친구 위치 마커 표시
+    LaunchedEffect(map, friendLocations) {
+        map?.let { naverMap ->
+            // 기존 친구 마커 제거
+            friendMarkers.forEach { it.map = null }
+            // 새 친구 마커 생성
+            friendMarkers = friendLocations.mapNotNull { friend ->
+                val lat = (friend["latitude"] as? Number)?.toDouble() ?: return@mapNotNull null
+                val lng = (friend["longitude"] as? Number)?.toDouble() ?: return@mapNotNull null
+                val nick = friend["nickname"] as? String ?: ""
+                Marker().apply {
+                    position = LatLng(lat, lng)
+                    icon = MarkerIcons.BLACK
+                    iconTintColor = android.graphics.Color.BLUE
+                    captionText = nick
+                    captionMinZoom = 12.0
+                    map = naverMap
+                }
+            }
+        }
+    }
 }
 
-private fun updateLocation(naverMap: com.naver.maps.map.NaverMap, location: Location, currentMarker: Marker?, onMarkerCreated: (Marker) -> Unit) {
+private fun updateLocation(
+    naverMap: com.naver.maps.map.NaverMap,
+    location: Location,
+    currentMarker: Marker?,
+    userNickname: String,
+    onMarkerCreated: (Marker) -> Unit
+) {
     val latLng = LatLng(location.latitude, location.longitude)
     Log.d("NAVER_MAP", "위치 업데이트: ${latLng.latitude}, ${latLng.longitude}")
     
@@ -121,7 +158,7 @@ private fun updateLocation(naverMap: com.naver.maps.map.NaverMap, location: Loca
         iconTintColor = android.graphics.Color.RED
         width = 50
         height = 50
-        captionText = "현재 위치"
+        captionText = userNickname
         captionMinZoom = 12.0
         map = naverMap
     }
@@ -157,6 +194,14 @@ fun MainScreen(
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
+    
+    // 친구 관리 상태
+    var friendList by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
+    var isFriendsLoading by remember { mutableStateOf(false) }
+    
+    // 친구 위치 상태
+    var friendLocations by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
+    var isFriendLocationsLoading by remember { mutableStateOf(false) }
     
     // userJson에서 user_id 파싱
     val parsedUserId = remember(userJson) {
@@ -253,6 +298,8 @@ fun MainScreen(
         
         // 네이버 지도
         NaverMapScreen(
+            userNickname = userNickname,
+            friendLocations = friendLocations,
             onLocationChanged = { lat, lng ->
                 latitude = lat
                 longitude = lng
@@ -429,6 +476,122 @@ fun MainScreen(
                                 }
                             ) {
                                 Text("친구 추가")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 친구 목록 초기 로드
+        LaunchedEffect(parsedUserId) {
+            if (parsedUserId > 0) {
+                isFriendsLoading = true
+                apiService.getFriendsList(parsedUserId.toString())
+                    .enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                        override fun onResponse(
+                            call: retrofit2.Call<Map<String, Any>>, 
+                            response: retrofit2.Response<Map<String, Any>>
+                        ) {
+                            isFriendsLoading = false
+                            val body = response.body()
+                            if (response.isSuccessful && body != null && body["success"] == true) {
+                                @Suppress("UNCHECKED_CAST")
+                                friendList = body["friends"] as? List<Map<String, Any>> ?: emptyList()
+                            } else {
+                                Log.e("FriendList", "친구 목록 로드 실패: ${body?.get("error")}")
+                            }
+                        }
+                        override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
+                            isFriendsLoading = false
+                            Log.e("FriendList", "네트워크 오류: ${t.message}", t)
+                        }
+                    })
+            }
+        }
+
+        // 친구 위치 로드
+        LaunchedEffect(parsedUserId) {
+            if (parsedUserId > 0) {
+                isFriendLocationsLoading = true
+                apiService.getFriendsLocations(parsedUserId.toString())
+                    .enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                        override fun onResponse(
+                            call: retrofit2.Call<Map<String, Any>>, 
+                            response: retrofit2.Response<Map<String, Any>>
+                        ) {
+                            isFriendLocationsLoading = false
+                            val body = response.body()
+                            if (response.isSuccessful && body != null && body["success"] == true) {
+                                @Suppress("UNCHECKED_CAST")
+                                friendLocations = body["friends"] as? List<Map<String, Any>> ?: emptyList()
+                            } else {
+                                Log.e("FriendLoc", "친구 위치 로드 실패: ${body?.get("error")}")
+                            }
+                        }
+                        override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
+                            isFriendLocationsLoading = false
+                            Log.e("FriendLoc", "네트워크 오류: ${t.message}", t)
+                        }
+                    })
+            }
+        }
+
+        // 친구 목록 UI
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(text = "친구 목록", fontWeight = FontWeight.Bold)
+        if (isFriendsLoading) {
+            CircularProgressIndicator(modifier = Modifier.padding(16.dp))
+        } else if (friendList.isEmpty()) {
+            Text(text = "등록된 친구가 없습니다.", modifier = Modifier.padding(8.dp))
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                items(friendList) { friend ->
+                    val fid = when (val id = friend["id"]) {
+                        is Int -> id
+                        is Long -> id.toInt()
+                        is String -> id.toIntOrNull()
+                        else -> null
+                    }
+                    Card(modifier = Modifier.fillMaxWidth().padding(4.dp),
+                         elevation = CardDefaults.cardElevation(2.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(text = friend["nickname"] as? String ?: "")
+                                Text(text = friend["email"] as? String ?: "", fontSize = 12.sp)
+                            }
+                            if (fid != null) {
+                                Button(onClick = {
+                                    apiService.deleteFriend(
+                                        userId = parsedUserId.toString(),
+                                        friendId = fid.toString()
+                                    ).enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                                        override fun onResponse(
+                                            call: retrofit2.Call<Map<String, Any>>, 
+                                            response: retrofit2.Response<Map<String, Any>>
+                                        ) {
+                                            if (response.isSuccessful && response.body()?.get("success")==true) {
+                                                friendList = friendList.filter { it["id"] != fid }
+                                                successMessage = "친구가 삭제되었습니다."
+                                                MainScope().launch {
+                                                    delay(3000)
+                                                    successMessage = ""
+                                                }
+                                            } else {
+                                                Log.e("FriendDelete","삭제 실패: ${response.body()?.get("error")}")
+                                            }
+                                        }
+                                        override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
+                                            Log.e("FriendDelete","네트워크 오류: ${t.message}", t)
+                                        }
+                                    })
+                                }) {
+                                    Text("삭제")
+                                }
                             }
                         }
                     }
