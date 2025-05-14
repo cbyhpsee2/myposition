@@ -61,6 +61,26 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.foundation.clickable
+import android.content.Intent
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import java.text.SimpleDateFormat
+import java.util.*
+import kotlinx.coroutines.awaitCancellation
+import com.naver.maps.map.overlay.PolylineOverlay
+import com.naver.maps.map.LocationTrackingMode
+import com.naver.maps.map.util.FusedLocationSource
+import android.app.Activity
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.toArgb
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -69,7 +89,11 @@ fun NaverMapScreen(
     friendLocations: List<Map<String, Any>>,
     selectedLatLngTriple: Triple<Double, Double, Long>?,
     onLocationChanged: (Double, Double) -> Unit,
-    onLocationError: (String) -> Unit
+    onLocationError: (String) -> Unit,
+    friendPath: List<LatLng>,
+    myLatitude: Double?,
+    myLongitude: Double?,
+    onMapReady: (com.naver.maps.map.NaverMap) -> Unit = {}
 ) {
     val context = LocalContext.current
     val mapView = remember { MapView(context) }
@@ -77,6 +101,9 @@ fun NaverMapScreen(
     var currentMarker by remember { mutableStateOf<Marker?>(null) }
     var map by remember { mutableStateOf<com.naver.maps.map.NaverMap?>(null) }
     var friendMarkers by remember { mutableStateOf<List<Marker>>(emptyList()) }
+    var friendPolyline by remember { mutableStateOf<PolylineOverlay?>(null) }
+    val locationSource = remember { FusedLocationSource(context as Activity, 1000) }
+    var naverMapRef by remember { mutableStateOf<com.naver.maps.map.NaverMap?>(null) }
 
     DisposableEffect(lifecycleOwner) {
         val lifecycle = lifecycleOwner.lifecycle
@@ -101,7 +128,11 @@ fun NaverMapScreen(
         Log.d("NAVER_MAP", "LaunchedEffect 진입, mapView=$mapView")
         mapView.getMapAsync(OnMapReadyCallback { naverMap ->
             map = naverMap
+            naverMap.uiSettings.isLocationButtonEnabled = false
+            naverMap.locationSource = locationSource
+            naverMap.locationTrackingMode = LocationTrackingMode.Follow
             Log.d("NAVER_MAP", "getMapAsync 콜백 진입")
+            val density = context.resources.displayMetrics.density
             val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
             fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
                 if (location != null) {
@@ -135,32 +166,63 @@ fun NaverMapScreen(
             }.addOnFailureListener { exception ->
                 onLocationError("위치 정보 에러: ${exception.message}")
             }
+            onMapReady(naverMap)
         })
     }
 
-    AndroidView(
-        factory = { mapView },
-        modifier = Modifier
-            .fillMaxSize()
-    )
+    Box(modifier = Modifier.fillMaxSize()) {
+        AndroidView(
+            factory = { mapView },
+            modifier = Modifier.fillMaxSize()
+        )
+        // 커스텀 내 위치 버튼 (우측 하단, bottom에서 300dp 위)
+        FloatingActionButton(
+            onClick = {
+                val naverMap = map
+                if (naverMap != null && myLatitude != null && myLongitude != null) {
+                    naverMap.moveCamera(CameraUpdate.scrollTo(LatLng(myLatitude, myLongitude)))
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 300.dp)
+        ) {
+            Icon(Icons.Default.MyLocation, contentDescription = "내 위치로 이동")
+        }
+    }
 
     // 친구 위치 마커 표시
     LaunchedEffect(map, friendLocations) {
+        Log.d("DEBUG", "friendLocations: $friendLocations")
+        if (map == null) {
+            Log.d("DEBUG", "map이 아직 초기화되지 않음")
+            return@LaunchedEffect
+        }
         map?.let { naverMap ->
-            // 기존 친구 마커 제거
-            friendMarkers.forEach { it.map = null }
-            // 새 친구 마커 생성
-            friendMarkers = friendLocations.mapNotNull { friend ->
-                val lat = (friend["latitude"] as? Number)?.toDouble() ?: return@mapNotNull null
-                val lng = (friend["longitude"] as? Number)?.toDouble() ?: return@mapNotNull null
-                val nick = friend["nickname"] as? String ?: ""
-                Marker().apply {
-                    position = LatLng(lat, lng)
-                    icon = MarkerIcons.BLACK
-                    iconTintColor = android.graphics.Color.BLUE
-                    captionText = nick
-                    captionMinZoom = 12.0
-                    map = naverMap
+            Log.d("DEBUG", "map 객체: $naverMap, 타입: ${naverMap.javaClass.name}")
+            val mainHandler = Handler(Looper.getMainLooper())
+            mainHandler.post {
+                // 기존 친구 마커 제거
+                friendMarkers.forEach { it.map = null }
+                // 새 친구 마커 생성
+                friendMarkers = friendLocations.mapNotNull { friend ->
+                    val lat = (friend["latitude"] as? Number)?.toDouble() ?: return@mapNotNull null
+                    val lng = (friend["longitude"] as? Number)?.toDouble() ?: return@mapNotNull null
+                    val nick = friend["nickname"] as? String ?: ""
+                    val marker = Marker().apply {
+                        position = LatLng(lat, lng)
+                        icon = MarkerIcons.BLACK
+                        iconTintColor = android.graphics.Color.BLUE
+                        captionText = nick
+                        captionMinZoom = 1.0
+                        try {
+                            setMap(naverMap)
+                        } catch (e: Exception) {
+                            Log.e("DEBUG", "마커 setMap 할당 중 예외", e)
+                        }
+                    }
+                    Log.d("DEBUG", "마커 생성 후 marker.map: ${marker.map}, naverMap: $naverMap")
+                    marker
                 }
             }
         }
@@ -175,6 +237,33 @@ fun NaverMapScreen(
         selectedLatLngTriple?.let { (lat, lng, _) ->
             map?.moveCamera(CameraUpdate.scrollTo(LatLng(lat, lng)))
             Log.d("NAV_DEBUG", "지도 moveCamera 실행: $lat, $lng")
+        }
+    }
+
+    // PolylineOverlay로 점선 경로 표시
+    LaunchedEffect(map, friendPath) {
+        val naverMap = map
+        Log.d("DEBUG", "LaunchedEffect: map=$naverMap, friendPath=$friendPath")
+        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        mainHandler.post {
+            friendPolyline?.map = null
+            if (friendPath.size > 1 && naverMap != null) {
+                Log.d("DEBUG", "PolylineOverlay에 전달되는 friendPath: $friendPath")
+                val polyline = PolylineOverlay().apply {
+                    coords = friendPath
+                    color = android.graphics.Color.RED
+                    width = 5
+                }
+                polyline.map = naverMap
+                friendPolyline = polyline
+                val bounds = com.naver.maps.geometry.LatLngBounds.Builder().apply {
+                    friendPath.forEach { include(it) }
+                }.build()
+                naverMap.moveCamera(com.naver.maps.map.CameraUpdate.fitBounds(bounds, 100))
+                Log.d("DEBUG", "PolylineOverlay 생성 완료: $friendPolyline, map 할당: ${friendPolyline?.map}")
+            } else {
+                Log.d("DEBUG", "PolylineOverlay 생성 조건 불충족: 좌표 개수 ${friendPath.size}")
+            }
         }
     }
 }
@@ -206,7 +295,7 @@ private fun updateLocation(
     
     // 카메라 이동
     naverMap.moveCamera(CameraUpdate.scrollTo(latLng))
-    naverMap.uiSettings.isLocationButtonEnabled = true
+    naverMap.uiSettings.isLocationButtonEnabled = false
     
     // 마커 생성 콜백
     onMarkerCreated(marker)
@@ -233,30 +322,52 @@ fun MainScreen(
     var locationError by remember { mutableStateOf("") }
     var lastSentLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var isLocationChanged by remember { mutableStateOf(false) }
-    
-    // 친구 검색 관련 상태
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
-    
-    // 친구 관리 상태
     var friendList by remember { mutableStateOf<List<Friend>>(emptyList()) }
     var isFriendsLoading by remember { mutableStateOf(false) }
-    
-    // 친구 위치 상태
     var friendLocations by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var isFriendLocationsLoading by remember { mutableStateOf(false) }
-    
-    // 상태를 Triple<Double, Double, Long>?로 관리
     var selectedLatLngTriple by remember { mutableStateOf<Triple<Double, Double, Long>?>(null) }
-
-    // 탭 상태 (0: 검색, 1: 목록)
     var selectedTabIndex by remember { mutableStateOf(0) }
-    // 이메일 보기 상태
     var selectedEmail by remember { mutableStateOf<String?>(null) }
-
-    // userId 직접 사용
     val gid = userId
+    val hasLocationPermission = ContextCompat.checkSelfPermission(
+        context, Manifest.permission.ACCESS_FINE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
+    if (!hasLocationPermission) {
+        latitude = null
+        longitude = null
+    }
+    var selectedFriendPath by remember { mutableStateOf<List<LatLng>>(emptyList()) }
+    var selectedFriendId by remember { mutableStateOf<Int?>(null) }
+    fun refreshFriendPath(friendId: Int) {
+        apiService.getFriendLocationHistory(friendId).enqueue(object : retrofit2.Callback<com.example.myposition.model.FriendLocationHistoryResponse> {
+            override fun onResponse(
+                call: retrofit2.Call<com.example.myposition.model.FriendLocationHistoryResponse>,
+                response: retrofit2.Response<com.example.myposition.model.FriendLocationHistoryResponse>
+            ) {
+                val body = response.body()
+                Log.d("DEBUG", "API 응답 raw: ${response.raw()}")
+                Log.d("DEBUG", "API 응답 body: $body")
+                if (response.isSuccessful && body != null && body.success) {
+                    Log.d("DEBUG", "API 반환 locations: ${body.locations}")
+                    selectedFriendPath = body.locations.map { LatLng(it.latitude, it.longitude) }
+                } else {
+                    Log.d("DEBUG", "API 실패 또는 데이터 없음: ${response.errorBody()?.string()}")
+                    selectedFriendPath = emptyList()
+                }
+            }
+            override fun onFailure(
+                call: retrofit2.Call<com.example.myposition.model.FriendLocationHistoryResponse>,
+                t: Throwable
+            ) {
+                Log.d("DEBUG", "API 호출 실패: ${t.message}")
+                selectedFriendPath = emptyList()
+            }
+        })
+    }
 
     // 친구 목록 로드 함수 (최상단으로 이동)
     fun loadFriendsList() {
@@ -318,6 +429,47 @@ fun MainScreen(
     // MainScreen 진입 시 친구 목록 자동 로드
     LaunchedEffect(gid) {
         loadFriendsList()
+    }
+
+    // 친구 위치 5초/30초마다 자동 갱신 (포그라운드/백그라운드)
+    var lastFriendLocationUpdateTime by remember { mutableStateOf<Long?>(null) }
+    var isForeground by remember { mutableStateOf(true) } // 실제로는 LifecycleObserver로 감지 필요
+    LaunchedEffect(gid, isForeground, lastFriendLocationUpdateTime) {
+        val pollingInterval = if (isForeground) 5000L else 30000L
+        while (gid > 0) {
+            apiService.getFriendsLocations(gid, lastFriendLocationUpdateTime).enqueue(object : retrofit2.Callback<com.example.myposition.model.FriendLocationResponse> {
+                override fun onResponse(
+                    call: retrofit2.Call<com.example.myposition.model.FriendLocationResponse>,
+                    response: retrofit2.Response<com.example.myposition.model.FriendLocationResponse>
+                ) {
+                    isFriendLocationsLoading = false
+                    val locBody = response.body()
+                    if (response.isSuccessful && locBody != null && locBody.success) {
+                        if (locBody.locations.isNotEmpty()) {
+                            friendLocations = locBody.locations.map { loc ->
+                                mapOf(
+                                    "gid" to loc.gid,
+                                    "nickname" to loc.nickname,
+                                    "latitude" to loc.latitude,
+                                    "longitude" to loc.longitude
+                                )
+                            }
+                            lastFriendLocationUpdateTime = System.currentTimeMillis()
+                        }
+                    } else {
+                        Log.e("FriendLoc", "친구 위치 로드 실패")
+                    }
+                }
+                override fun onFailure(
+                    call: retrofit2.Call<com.example.myposition.model.FriendLocationResponse>,
+                    t: Throwable
+                ) {
+                    isFriendLocationsLoading = false
+                    Log.e("FriendLoc", "네트워크 오류: ${t.message}", t)
+                }
+            })
+            kotlinx.coroutines.delay(pollingInterval)
+        }
     }
 
     // 위치 변경 감지 및 전송을 위한 LaunchedEffect
@@ -391,21 +543,90 @@ fun MainScreen(
         }
     }
 
-    // 내 위치 LatLng 계산
-    val myLatLng = if (latitude != null && longitude != null) LatLng(latitude!!, longitude!!) else null
+    // 내 위치 LatLng 계산 (권한 없으면 null)
+    val myLatLng = if (hasLocationPermission && latitude != null && longitude != null) LatLng(latitude!!, longitude!!) else null
+
+    // 포그라운드 위치 서비스 시작
+    LaunchedEffect(userId) {
+        if (userId > 0) {
+            val intent = Intent(context, com.example.myposition.LocationForegroundService::class.java)
+            intent.putExtra("user_id", userId)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
+    }
+
+    // 내 위치 실시간 갱신: 앱 실행 중 항상 최신 위치를 받아와 상태에 반영
+    LaunchedEffect(Unit) {
+        val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+        val locationRequest = com.google.android.gms.location.LocationRequest.create().apply {
+            priority = com.google.android.gms.location.LocationRequest.PRIORITY_HIGH_ACCURACY
+            interval = 3000 // 3초마다 위치 요청
+            fastestInterval = 2000
+        }
+        val locationCallback = object : com.google.android.gms.location.LocationCallback() {
+            override fun onLocationResult(result: com.google.android.gms.location.LocationResult) {
+                val loc = result.lastLocation
+                if (loc != null) {
+                    latitude = loc.latitude
+                    longitude = loc.longitude
+                } else {
+                    locationError = "내 위치를 받아올 수 없습니다. 위치 권한/서비스를 확인하세요."
+                }
+            }
+        }
+        try {
+            fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, null)
+            awaitCancellation()
+        } finally {
+            fusedLocationClient.removeLocationUpdates(locationCallback)
+        }
+    }
+
+    // MainScreen에서만 naverMapRef와 onMoveToMyLocation 핸들러 선언
+    var naverMapRef by remember { mutableStateOf<com.naver.maps.map.NaverMap?>(null) }
+    val handleMoveToMyLocation = {
+        val myLat = myLatLng?.latitude
+        val myLng = myLatLng?.longitude
+        if (naverMapRef != null && myLat != null && myLng != null) {
+            naverMapRef!!.moveCamera(CameraUpdate.scrollTo(LatLng(myLat, myLng)))
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("내 위치/친구 관리", fontWeight = FontWeight.Bold) },
-                actions = {
-                    Text(text = userEmail, fontSize = 14.sp, color = MaterialTheme.colorScheme.onPrimary)
-                    IconButton(onClick = onLogout) {
-                        Icon(Icons.Default.ExitToApp, contentDescription = "로그아웃", tint = MaterialTheme.colorScheme.onPrimary)
-                    }
+            // 상태바(시계, 배터리 등) 배경색도 흰색으로 변경
+            val view = LocalView.current
+            SideEffect {
+                val window = (view.context as? android.app.Activity)?.window
+                window?.statusBarColor = Color.White.toArgb()
+                window?.let {
+                    WindowCompat.getInsetsController(it, view)?.isAppearanceLightStatusBars = true
                 }
-            )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(100.dp)
+                    .background(Color.White)
+                    .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = userEmail,
+                    fontSize = 14.sp,
+                    color = Color.Black,
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+                IconButton(onClick = onLogout) {
+                    Icon(Icons.Default.ExitToApp, contentDescription = "로그아웃", tint = Color.Black)
+                }
+            }
         }
     ) { innerPadding ->
         FriendLocationScreen(
@@ -539,8 +760,22 @@ fun MainScreen(
                 })
             },
             onShowMessage = { successMessage = it },
+            friendPath = selectedFriendPath,
+            onShowFriendPath = { friendId ->
+                selectedFriendId = friendId
+                refreshFriendPath(friendId)
+            },
+            onMoveToMyLocation = handleMoveToMyLocation,
             modifier = Modifier.padding(innerPadding)
         )
+    }
+
+    // 5초마다 자동 경로 갱신 LaunchedEffect 추가
+    LaunchedEffect(selectedFriendId) {
+        while (selectedFriendId != null) {
+            refreshFriendPath(selectedFriendId!!)
+            kotlinx.coroutines.delay(5000)
+        }
     }
 }
 
@@ -561,6 +796,9 @@ fun FriendLocationScreen(
     onAddFriend: (Map<String, Any>) -> Unit,
     onDeleteFriend: (com.example.myposition.model.Friend) -> Unit,
     onShowMessage: (String) -> Unit,
+    friendPath: List<LatLng>,
+    onShowFriendPath: (Int) -> Unit,
+    onMoveToMyLocation: () -> Unit,
     modifier: Modifier
 ) {
     var showSearch by remember { mutableStateOf(false) }
@@ -577,15 +815,19 @@ fun FriendLocationScreen(
             },
             selectedLatLngTriple = selectedLatLngTriple,
             onLocationChanged = { _, _ -> },
-            onLocationError = { _ -> }
+            onLocationError = { _ -> },
+            friendPath = friendPath,
+            myLatitude = myLocation?.latitude,
+            myLongitude = myLocation?.longitude,
+            onMapReady = { }
         )
         // 하단 카드 (sheet처럼 겹치기)
         Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .heightIn(min = 200.dp, max = 500.dp)
-                .padding(8.dp),
+                .heightIn(min = 200.dp, max = 400.dp)
+                .padding(start = 8.dp, end = 8.dp),
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
             tonalElevation = 8.dp,
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
@@ -684,11 +926,21 @@ fun FriendLocationScreen(
                         items(friends) { friend ->
                             val loc = friendLocations.find { it.gid == friend.gid }
                             val distanceKm = if (loc != null && myLocation != null) {
+                                Log.d("DEBUG", "거리 계산: 내 위치 $myLocation, 친구 위치 $loc")
                                 val d = haversine(myLocation.latitude, myLocation.longitude, loc.latitude, loc.longitude)
                                 String.format("%.1fkm", d)
                             } else {
+                                Log.d("DEBUG", "거리 계산 불가: myLocation=$myLocation, loc=$loc")
                                 "-"
                             }
+                            // 위치 갱신 상태 계산
+                            val isRecentlyUpdated = loc?.updatedAt?.let {
+                                try {
+                                    val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                                    val updated = fmt.parse(it)?.time ?: 0L
+                                    System.currentTimeMillis() - updated < 15_000 // 15초 이내면 갱신중
+                                } catch (e: Exception) { false }
+                            } ?: false
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
@@ -697,6 +949,12 @@ fun FriendLocationScreen(
                             ) {
                                 Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(40.dp).clip(CircleShape))
                                 Spacer(Modifier.width(12.dp))
+                                // 갱신 상태 원 표시
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .background(if (isRecentlyUpdated) Color.Green else Color.Red, CircleShape)
+                                )
                                 Column(Modifier.weight(1f)) {
                                     Text(
                                         friend.nickname,
@@ -716,6 +974,10 @@ fun FriendLocationScreen(
                                 IconButton(onClick = { onDeleteFriend(friend) }) {
                                     Icon(Icons.Default.Delete, contentDescription = "친구 삭제", tint = Color.Red)
                                 }
+                                Button(
+                                    onClick = { if (friend.gid != null) onShowFriendPath(friend.gid) },
+                                    modifier = Modifier.padding(end = 8.dp)
+                                ) { Text("이동") }
                             }
                         }
                     }
