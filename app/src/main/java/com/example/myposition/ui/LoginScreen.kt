@@ -31,25 +31,42 @@ import com.example.myposition.model.FriendsListResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.foundation.background
 
 @Composable
 fun LoginScreen(onLoginSuccess: (String, String, Int, String?) -> Unit) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val view = LocalView.current
+    // 상태바 배경색을 흰색으로 지정
+    SideEffect {
+        val activity = context as? Activity
+        val window = activity?.window
+        window?.statusBarColor = android.graphics.Color.WHITE
+        window?.let {
+            WindowCompat.getInsetsController(it, view)?.isAppearanceLightStatusBars = true
+        }
+    }
     var isLoading by remember { mutableStateOf(false) }
     var errorMsg by remember { mutableStateOf("") }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        // 카카오 로그인 이미지 버튼
+    Box(modifier = Modifier.fillMaxSize().background(Color.Red)) {
         Image(
-            painter = painterResource(id = R.drawable.kakao_login_medium_narrow),
+            painter = painterResource(id = R.drawable.bg_myposition),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.matchParentSize()
+        )
+        Image(
+            painter = painterResource(id = R.drawable.kakao_login_large_narrow),
             contentDescription = "카카오 로그인",
             modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 166.dp)
                 .fillMaxWidth()
                 .height(56.dp)
                 .clickable(enabled = !isLoading) {
@@ -137,11 +154,19 @@ fun LoginScreen(onLoginSuccess: (String, String, Int, String?) -> Unit) {
                     }
                 },
         )
-        if (isLoading) {
-            CircularProgressIndicator(modifier = Modifier.padding(16.dp))
-        }
-        if (errorMsg.isNotEmpty()) {
-            Text(errorMsg, color = Color.Red, modifier = Modifier.padding(8.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.padding(16.dp))
+            }
+            if (errorMsg.isNotEmpty()) {
+                Text(errorMsg, color = Color.Red, modifier = Modifier.padding(8.dp))
+            }
         }
     }
 } 

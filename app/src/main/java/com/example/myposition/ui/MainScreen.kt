@@ -631,6 +631,15 @@ fun MainScreen(
     }
 
     InstagramTheme {
+        // 상태바 배경색 흰색으로 지정
+        val view = LocalView.current
+        SideEffect {
+            val window = (view.context as? android.app.Activity)?.window
+            window?.statusBarColor = Color.White.toArgb()
+            window?.let {
+                WindowCompat.getInsetsController(it, view)?.isAppearanceLightStatusBars = true
+            }
+        }
         Scaffold(
             snackbarHost = {
                 SnackbarHost(snackbarHostState) { snackbarData ->
@@ -645,69 +654,6 @@ fun MainScreen(
                     )
                 }
             },
-            topBar = {
-                val view = LocalView.current
-                SideEffect {
-                    val window = (view.context as? android.app.Activity)?.window
-                    window?.statusBarColor = InstagramColors.lightBackground.toArgb()
-                    window?.let {
-                        WindowCompat.getInsetsController(it, view)?.isAppearanceLightStatusBars = true
-                    }
-                }
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(60.dp),
-                    color = InstagramColors.lightBackground,
-                    shadowElevation = 4.dp
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 16.dp)
-                            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (userProfileImageUrl.isNotBlank()) {
-                                Image(
-                                    painter = rememberAsyncImagePainter(userProfileImageUrl),
-                                    contentDescription = "내 프로필",
-                                    modifier = Modifier.size(32.dp).clip(CircleShape)
-                                )
-                                Spacer(Modifier.width(8.dp))
-                            }
-                            Text(
-                                text = userNickname,
-                                style = MaterialTheme.typography.titleSmall
-                            )
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = userEmail,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.Gray,
-                                modifier = Modifier.padding(end = 8.dp)
-                            )
-                            IconButton(
-                                onClick = onLogout,
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Transparent)
-                            ) {
-                                Icon(
-                                    Icons.Default.ExitToApp,
-                                    contentDescription = "로그아웃",
-                                    tint = InstagramColors.primaryBlue,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
         ) { innerPadding ->
             FriendLocationScreen(
                 myGid = gid,
@@ -769,7 +715,7 @@ fun MainScreen(
                 },
                 onAddFriend = { user ->
                     println("[DEBUG] 친구 추가 버튼 클릭됨")
-                    Toast.makeText(context, "onAddFriend 호출됨", Toast.LENGTH_SHORT).show()
+                    //Toast.makeText(context, "onAddFriend 호출됨", Toast.LENGTH_SHORT).show()
                     val friendGid = when (val id = user["gid"]) {
                         is Int -> id
                         is Long -> id.toInt()
@@ -847,7 +793,11 @@ fun MainScreen(
                     refreshFriendPath(friendId)
                 },
                 onMoveToMyLocation = handleMoveToMyLocation,
-                modifier = Modifier.padding(innerPadding)
+                modifier = Modifier.padding(innerPadding),
+                userProfileImageUrl = userProfileImageUrl,
+                userNickname = userNickname,
+                userEmail = userEmail,
+                onLogout = onLogout
             )
         }
     }
@@ -881,7 +831,11 @@ fun FriendLocationScreen(
     friendPath: List<LatLng>,
     onShowFriendPath: (Int) -> Unit,
     onMoveToMyLocation: () -> Unit,
-    modifier: Modifier
+    modifier: Modifier,
+    userProfileImageUrl: String,
+    userNickname: String,
+    userEmail: String,
+    onLogout: () -> Unit
 ) {
     var showSearch by remember { mutableStateOf(false) }
     Box(modifier = Modifier.fillMaxSize()) {
@@ -909,26 +863,99 @@ fun FriendLocationScreen(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .heightIn(min = 200.dp, max = 400.dp)
-                .padding(start = 8.dp, end = 8.dp, bottom = 50.dp),
+                .padding(start = 8.dp, end = 8.dp, bottom = 48.dp),
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            tonalElevation = 8.dp,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+            shadowElevation = 4.dp,
+            color = Color(0xFFF5F7FA)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                // 상단 버튼 Row
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    Button(
-                        onClick = { showSearch = true },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (showSearch) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
+                // 내 프로필 Surface+Row 추가
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 4.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFFFFFFFFF), // 친구검색/목록 Surface와 동일
+                    shadowElevation = 0.5.dp   // 그림자 더 연하게
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp)
+                    ) {
+                        if (userProfileImageUrl.isNotBlank()) {
+                            Image(
+                                painter = rememberAsyncImagePainter(userProfileImageUrl),
+                                contentDescription = "내 프로필",
+                                modifier = Modifier.size(40.dp).clip(CircleShape)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = userNickname,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                text = userEmail,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                color = Color.Gray
+                            )
+                        }
+                        Text(
+                            text = "친구 ${friends.size}명",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = InstagramColors.primaryBlue,
+                            modifier = Modifier.padding(end = 8.dp)
                         )
-                    ) { Text("친구 검색", color = if (showSearch) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface) }
-                    Button(
-                        onClick = { showSearch = false },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (!showSearch) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
-                        )
-                    ) { Text("친구 목록", color = if (!showSearch) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface) }
+                        IconButton(
+                            onClick = onLogout,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(Color.Transparent)
+                        ) {
+                            Icon(
+                                Icons.Default.ExitToApp,
+                                contentDescription = "로그아웃",
+                                tint = InstagramColors.primaryBlue,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                // 친구검색/친구목록 버튼 Row Surface로 감싸기
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 4.dp),
+                    color = Color(0xFFEBEEF5), // 동일한 연한 회색
+                    shadowElevation = 0.5.dp,  // 그림자 더 연하게
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        Button(
+                            onClick = { showSearch = true },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (showSearch) Color(0xFF3B5BFE) else Color.White,
+                                contentColor = if (showSearch) Color.White else Color.Black
+                            )
+                        ) { Text("친구 검색") }
+                        Button(
+                            onClick = { showSearch = false },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (!showSearch) Color(0xFF3B5BFE) else Color.White,
+                                contentColor = if (!showSearch) Color.White else Color.Black
+                            )
+                        ) { Text("친구 목록") }
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
                 if (showSearch) {
@@ -1050,7 +1077,7 @@ fun FriendLocationScreen(
                                 try {
                                     val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
                                     val updated = fmt.parse(it)?.time ?: 0L
-                                    System.currentTimeMillis() - updated < 15_000 // 15초 이내면 갱신중
+                                    System.currentTimeMillis() - updated < 40_000 // 40초 이내면 갱신중
                                 } catch (e: Exception) { false }
                             } ?: false
                             Row(
@@ -1077,11 +1104,20 @@ fun FriendLocationScreen(
                                     Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(40.dp).clip(CircleShape))
                                 }
                                 Spacer(Modifier.width(12.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .size(12.dp)
-                                        .background(if (isRecentlyUpdated) Color.Green else Color.Red, CircleShape)
-                                )
+                                // 갱신 상태 표시: isRecentlyUpdated면 ProgressIndicator, 아니면 동그라미
+                                if (isRecentlyUpdated) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        color = Color.Green,
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .background(Color.Red, CircleShape)
+                                    )
+                                }
                                 Column(Modifier.weight(1f)) {
                                     Text(
                                         friend.nickname,
@@ -1097,16 +1133,16 @@ fun FriendLocationScreen(
                                 }) {
                                     Icon(Icons.Default.Email, contentDescription = "이메일 보기")
                                 }
-                                Text(distanceKm, color = Color.Blue, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 8.dp))
+                                Text(distanceKm, color = Color(0xFF555555), fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 8.dp))
                                 IconButton(onClick = { onDeleteFriend(friend) }) {
-                                    Icon(Icons.Default.Delete, contentDescription = "친구 삭제", tint = Color.Red)
+                                    Icon(Icons.Default.Delete, contentDescription = "친구 삭제", tint = Color(0xFF555555))
                                 }
                                 IconButton(
                                     onClick = { if (friend.gid != null) onShowFriendPath(friend.gid) },
                                     modifier = Modifier.padding(end = 8.dp)
                                 ) {
                                     Image(
-                                        painter = painterResource(id = R.drawable.run),
+                                        painter = painterResource(id = R.drawable.run2),
                                         contentDescription = "이동",
                                         modifier = Modifier.size(24.dp)
                                     )
