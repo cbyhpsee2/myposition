@@ -65,24 +65,28 @@ class MainActivity : ComponentActivity() {
             var userEmail by remember { mutableStateOf("") }
             var userNickname by remember { mutableStateOf("") }
             var userId by remember { mutableStateOf(-1) }
+            var userProfileImageUrl by remember { mutableStateOf("") }
             MyPositionTheme {
                 if (!isLoggedIn) {
-                    LoginScreen(onLoginSuccess = { email, nickname, id ->
+                    LoginScreen(onLoginSuccess = { email, nickname, id, profileImageUrl ->
                         userEmail = email
                         userNickname = nickname
                         userId = id
+                        userProfileImageUrl = profileImageUrl ?: ""
                         isLoggedIn = true
                     })
                 } else {
                     MainScreen(
                         userEmail = userEmail,
                         userNickname = userNickname,
+                        userProfileImageUrl = userProfileImageUrl,
                         userPassword = "",
                         onLogout = {
                             isLoggedIn = false
                             userEmail = ""
                             userNickname = ""
                             userId = -1
+                            userProfileImageUrl = ""
                         },
                         userInfo = "",
                         userId = userId,

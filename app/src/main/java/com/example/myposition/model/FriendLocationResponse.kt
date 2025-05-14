@@ -6,4 +6,9 @@ import com.google.gson.annotations.SerializedName
 data class FriendLocationResponse(
     val success: Boolean,
     @SerializedName("locations") val locations: List<FriendLocation>
+)
+
+data class FriendLocationHistoryResponse(
+    val success: Boolean,
+    @SerializedName("locations") val locations: List<FriendLocation>
 ) 

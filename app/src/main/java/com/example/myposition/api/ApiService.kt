@@ -10,7 +10,8 @@ interface ApiService {
         @Field("email") email: String,
         @Field("password") password: String,
         @Field("nickname") nickname: String,
-        @Field("uid") uid: String?
+        @Field("uid") uid: String?,
+        @Field("profile_image_url") profileImageUrl: String
     ): Call<Map<String, Any>>
 
     @FormUrlEncoded
@@ -28,7 +29,8 @@ interface ApiService {
 
     @GET("friends_locations/{user_id}")
     fun getFriendsLocations(
-        @Path("user_id") gid: Int
+        @Path("user_id") gid: Int,
+        @Query("lastModified") lastModified: Long? = null
     ): Call<com.example.myposition.model.FriendLocationResponse>
 
     @FormUrlEncoded
@@ -51,4 +53,10 @@ interface ApiService {
         @Field("user_id") gid: Int,
         @Field("friend_id") friendGid: Int
     ): Call<Map<String, Any>>
+
+    @GET("friend_location_history/{friend_id}")
+    fun getFriendLocationHistory(
+        @Path("friend_id") friendId: Int,
+        @Query("limit") limit: Int = 30
+    ): Call<com.example.myposition.model.FriendLocationHistoryResponse>
 } 

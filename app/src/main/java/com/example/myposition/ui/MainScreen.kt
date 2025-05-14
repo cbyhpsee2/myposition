@@ -31,13 +31,8 @@ import com.naver.maps.map.overlay.Marker
 import com.naver.maps.map.util.MarkerIcons
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import com.example.myposition.model.Friend
 import com.example.myposition.model.FriendsListResponse
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExitToApp
@@ -46,20 +41,13 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.Image
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.background
 import androidx.compose.material3.ExperimentalMaterial3Api
 import kotlin.math.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.filled.Navigation
-import androidx.navigation.Navigation
 import android.widget.Toast
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.BottomSheetScaffold
-import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.foundation.clickable
 import android.content.Intent
 import android.os.Build
@@ -81,6 +69,64 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.foundation.border
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.rememberAsyncImagePainter
+import com.naver.maps.map.NaverMap
+import coil.request.CachePolicy
+import coil.request.ImageRequest
+import androidx.compose.ui.res.painterResource
+import com.example.myposition.R
+
+// --- Instagram 스타일 컬러/테마 정의 ---
+object InstagramColors {
+    val primaryBlue = Color(0xFF405DE6)
+    val purple = Color(0xFF5851DB)
+    val gradientPink = Color(0xFFE1306C)
+    val orange = Color(0xFFFD1D1D)
+    val yellow = Color(0xFFF77737)
+    val lightBackground = Color(0xFFFAFAFA)
+    val darkBackground = Color(0xFF121212)
+    val cardBackground = Color.White
+    val darkCardBackground = Color(0xFF262626)
+}
+
+private val InstagramLightColorScheme = lightColorScheme(
+    primary = InstagramColors.primaryBlue,
+    secondary = InstagramColors.gradientPink,
+    tertiary = InstagramColors.yellow,
+    background = InstagramColors.lightBackground,
+    surface = Color.White,
+    onPrimary = Color.White,
+    onSecondary = Color.White,
+    onTertiary = Color.Black
+)
+
+@Composable
+fun InstagramTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = InstagramLightColorScheme,
+        typography = Typography(
+            titleLarge = TextStyle(
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Bold,
+                fontSize = 22.sp
+            ),
+            bodyLarge = TextStyle(
+                fontFamily = FontFamily.SansSerif,
+                fontSize = 16.sp
+            )
+        ),
+        shapes = Shapes(
+            small = RoundedCornerShape(12.dp),
+            medium = RoundedCornerShape(16.dp),
+            large = RoundedCornerShape(24.dp)
+        ),
+        content = content
+    )
+}
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -136,9 +182,7 @@ fun NaverMapScreen(
             val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
             fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
                 if (location != null) {
-                    updateLocation(naverMap, location, currentMarker, userNickname) { newMarker ->
-                        currentMarker = newMarker
-                    }
+                    updateLocation(naverMap, location, currentMarker, userNickname)
                     onLocationChanged(location.latitude, location.longitude)
                 } else {
                     val locationRequest = LocationRequest.create().apply {
@@ -150,9 +194,7 @@ fun NaverMapScreen(
                         override fun onLocationResult(result: LocationResult) {
                             val loc = result.lastLocation
                             if (loc != null) {
-                                updateLocation(naverMap, loc, currentMarker, userNickname) { newMarker ->
-                                    currentMarker = newMarker
-                                }
+                                updateLocation(naverMap, loc, currentMarker, userNickname)
                                 onLocationChanged(loc.latitude, loc.longitude)
                             } else {
                                 Log.d("NAVER_MAP", "requestLocationUpdates: 위치 정보 없음")
@@ -175,7 +217,7 @@ fun NaverMapScreen(
             factory = { mapView },
             modifier = Modifier.fillMaxSize()
         )
-        // 커스텀 내 위치 버튼 (우측 하단, bottom에서 300dp 위)
+        // 인스타 스타일 FAB
         FloatingActionButton(
             onClick = {
                 val naverMap = map
@@ -186,8 +228,16 @@ fun NaverMapScreen(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, bottom = 300.dp)
+                .size(56.dp),
+            containerColor = InstagramColors.primaryBlue,
+            contentColor = Color.White,
+            elevation = FloatingActionButtonDefaults.elevation(8.dp)
         ) {
-            Icon(Icons.Default.MyLocation, contentDescription = "내 위치로 이동")
+            Icon(
+                Icons.Default.MyLocation,
+                contentDescription = "내 위치로 이동",
+                modifier = Modifier.size(24.dp)
+            )
         }
     }
 
@@ -269,36 +319,18 @@ fun NaverMapScreen(
 }
 
 private fun updateLocation(
-    naverMap: com.naver.maps.map.NaverMap,
+    naverMap: NaverMap,
     location: Location,
     currentMarker: Marker?,
-    userNickname: String,
-    onMarkerCreated: (Marker) -> Unit
+    userNickname: String
 ) {
     val latLng = LatLng(location.latitude, location.longitude)
     Log.d("NAVER_MAP", "위치 업데이트: ${latLng.latitude}, ${latLng.longitude}")
-    
     // 기존 마커 제거
     currentMarker?.map = null
-    
-    // 새 마커 생성
-    val marker = Marker().apply {
-        position = latLng
-        icon = MarkerIcons.BLACK
-        iconTintColor = android.graphics.Color.RED
-        width = 50
-        height = 50
-        captionText = userNickname
-        captionMinZoom = 12.0
-        map = naverMap
-    }
-    
-    // 카메라 이동
+    // 카메라 이동만 남김
     naverMap.moveCamera(CameraUpdate.scrollTo(latLng))
     naverMap.uiSettings.isLocationButtonEnabled = false
-    
-    // 마커 생성 콜백
-    onMarkerCreated(marker)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -306,6 +338,7 @@ private fun updateLocation(
 fun MainScreen(
     userEmail: String,
     userNickname: String,
+    userProfileImageUrl: String,
     userPassword: String = "",
     onLogout: () -> Unit,
     userInfo: String,
@@ -396,7 +429,8 @@ fun MainScreen(
                                             "gid" to loc.gid,
                                             "nickname" to loc.nickname,
                                             "latitude" to loc.latitude,
-                                            "longitude" to loc.longitude
+                                            "longitude" to loc.longitude,
+                                            "profileImageUrl" to (loc.profileImageUrl ?: "")
                                         )
                                     }
                                 } catch (e: Exception) {
@@ -451,7 +485,8 @@ fun MainScreen(
                                     "gid" to loc.gid,
                                     "nickname" to loc.nickname,
                                     "latitude" to loc.latitude,
-                                    "longitude" to loc.longitude
+                                    "longitude" to loc.longitude,
+                                    "profileImageUrl" to (loc.profileImageUrl ?: "")
                                 )
                             }
                             lastFriendLocationUpdateTime = System.currentTimeMillis()
@@ -476,12 +511,11 @@ fun MainScreen(
     LaunchedEffect(gid, latitude, longitude) {
         val currentLat = latitude
         val currentLng = longitude
-        
+        val DISTANCE_THRESHOLD_METERS = 15.0 // 15미터 이상 이동 시만 업데이트
         if (currentLat != null && currentLng != null && gid > 0) {
             val lastLocation = lastSentLocation
-            val isSignificantChange = lastLocation == null || 
-                Math.abs(currentLat - lastLocation.first) > 0.0001 || 
-                Math.abs(currentLng - lastLocation.second) > 0.0001
+            val isSignificantChange = lastLocation == null ||
+                haversine(currentLat, currentLng, lastLocation.first, lastLocation.second) * 1000 > DISTANCE_THRESHOLD_METERS
 
             if (isSignificantChange) {
                 isLocationChanged = true
@@ -596,178 +630,226 @@ fun MainScreen(
         }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            // 상태바(시계, 배터리 등) 배경색도 흰색으로 변경
-            val view = LocalView.current
-            SideEffect {
-                val window = (view.context as? android.app.Activity)?.window
-                window?.statusBarColor = Color.White.toArgb()
-                window?.let {
-                    WindowCompat.getInsetsController(it, view)?.isAppearanceLightStatusBars = true
-                }
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(100.dp)
-                    .background(Color.White)
-                    .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = userEmail,
-                    fontSize = 14.sp,
-                    color = Color.Black,
-                    modifier = Modifier.padding(end = 8.dp)
-                )
-                IconButton(onClick = onLogout) {
-                    Icon(Icons.Default.ExitToApp, contentDescription = "로그아웃", tint = Color.Black)
-                }
-            }
-        }
-    ) { innerPadding ->
-        FriendLocationScreen(
-            myGid = gid,
-            myLocation = myLatLng,
-            friends = friendList,
-            friendLocations = friendLocations.mapNotNull { locMap ->
-                try {
-                    com.example.myposition.model.FriendLocation(
-                        gid = (locMap["gid"] as? Number)?.toInt() ?: return@mapNotNull null,
-                        nickname = locMap["nickname"] as? String ?: "",
-                        latitude = (locMap["latitude"] as? Number)?.toDouble() ?: return@mapNotNull null,
-                        longitude = (locMap["longitude"] as? Number)?.toDouble() ?: return@mapNotNull null,
-                        updatedAt = ""
+    InstagramTheme {
+        Scaffold(
+            snackbarHost = {
+                SnackbarHost(snackbarHostState) { snackbarData ->
+                    Snackbar(
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(16.dp)),
+                        shape = RoundedCornerShape(16.dp),
+                        containerColor = InstagramColors.darkBackground.copy(alpha = 0.9f),
+                        contentColor = Color.White,
+                        snackbarData = snackbarData
                     )
-                } catch (e: Exception) { null }
+                }
             },
-            selectedLatLngTriple = selectedLatLngTriple,
-            onFriendNavigate = { loc ->
-                Log.d("NAV_DEBUG", "onFriendNavigate 호출: $loc")
-                selectedLatLngTriple = Triple(loc.latitude, loc.longitude, System.currentTimeMillis())
-            },
-            searchQuery = searchQuery,
-            onSearchQueryChange = { searchQuery = it },
-            isSearching = isSearching,
-            searchResults = searchResults,
-            onSearch = {
-                isSearching = true
-                apiService.searchUsers(
-                    keyword = searchQuery,
-                    gid = gid
-                ).enqueue(object : retrofit2.Callback<Map<String, Any>> {
-                    override fun onResponse(
-                        call: retrofit2.Call<Map<String, Any>>,
-                        response: retrofit2.Response<Map<String, Any>>
+            topBar = {
+                val view = LocalView.current
+                SideEffect {
+                    val window = (view.context as? android.app.Activity)?.window
+                    window?.statusBarColor = InstagramColors.lightBackground.toArgb()
+                    window?.let {
+                        WindowCompat.getInsetsController(it, view)?.isAppearanceLightStatusBars = true
+                    }
+                }
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(60.dp),
+                    color = InstagramColors.lightBackground,
+                    shadowElevation = 4.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp)
+                            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        isSearching = false
-                        if (response.isSuccessful) {
-                            val body = response.body()
-                            if (body != null && body["success"] == true) {
-                                @Suppress("UNCHECKED_CAST")
-                                val users = body["users"] as? List<Map<String, Any>> ?: emptyList()
-                                searchResults = users
-                            } else {
-                                val errorMsg = body?.get("error") as? String ?: "검색 실패"
-                                errorLog = errorMsg
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (userProfileImageUrl.isNotBlank()) {
+                                Image(
+                                    painter = rememberAsyncImagePainter(userProfileImageUrl),
+                                    contentDescription = "내 프로필",
+                                    modifier = Modifier.size(32.dp).clip(CircleShape)
+                                )
+                                Spacer(Modifier.width(8.dp))
                             }
-                        } else {
-                            val errorMsg = "검색 실패: ${response.code()}"
-                            errorLog = errorMsg
+                            Text(
+                                text = userNickname,
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = userEmail,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray,
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                            IconButton(
+                                onClick = onLogout,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Transparent)
+                            ) {
+                                Icon(
+                                    Icons.Default.ExitToApp,
+                                    contentDescription = "로그아웃",
+                                    tint = InstagramColors.primaryBlue,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
                         }
                     }
-                    override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
-                        isSearching = false
-                        val errorMsg = "네트워크 오류: ${t.message}"
-                        errorLog = errorMsg
-                    }
-                })
-            },
-            onAddFriend = { user ->
-                println("[DEBUG] 친구 추가 버튼 클릭됨")
-                Toast.makeText(context, "onAddFriend 호출됨", Toast.LENGTH_SHORT).show()
-                val friendGid = when (val id = user["gid"]) {
-                    is Int -> id
-                    is Long -> id.toInt()
-                    is String -> id.toIntOrNull()
-                    else -> null
                 }
-                Log.d("FriendAdd", "내 gid = $gid, 친구 gid = $friendGid, user['gid'] = ${user["gid"]}, userId type = ${user["gid"]?.javaClass?.name}")
-                if (friendGid != null) {
-                    apiService.addFriend(
-                        gid = gid,
-                        friendGid = friendGid
+            }
+        ) { innerPadding ->
+            FriendLocationScreen(
+                myGid = gid,
+                myLocation = myLatLng,
+                friends = friendList,
+                friendLocations = friendLocations.mapNotNull { locMap ->
+                    try {
+                        com.example.myposition.model.FriendLocation(
+                            gid = (locMap["gid"] as? Number)?.toInt() ?: return@mapNotNull null,
+                            nickname = locMap["nickname"] as? String ?: "",
+                            latitude = (locMap["latitude"] as? Number)?.toDouble() ?: return@mapNotNull null,
+                            longitude = (locMap["longitude"] as? Number)?.toDouble() ?: return@mapNotNull null,
+                            updatedAt = ""
+                        )
+                    } catch (e: Exception) { null }
+                },
+                selectedLatLngTriple = selectedLatLngTriple,
+                onFriendNavigate = { loc ->
+                    Log.d("NAV_DEBUG", "onFriendNavigate 호출: $loc")
+                    selectedLatLngTriple = Triple(loc.latitude, loc.longitude, System.currentTimeMillis())
+                },
+                searchQuery = searchQuery,
+                onSearchQueryChange = { searchQuery = it },
+                isSearching = isSearching,
+                searchResults = searchResults,
+                onSearch = {
+                    isSearching = true
+                    apiService.searchUsers(
+                        keyword = searchQuery,
+                        gid = gid
                     ).enqueue(object : retrofit2.Callback<Map<String, Any>> {
                         override fun onResponse(
                             call: retrofit2.Call<Map<String, Any>>,
                             response: retrofit2.Response<Map<String, Any>>
                         ) {
+                            isSearching = false
+                            Log.d("SEARCH_API_DEBUG", "searchUsers response: ${response.body()}")
                             if (response.isSuccessful) {
                                 val body = response.body()
                                 if (body != null && body["success"] == true) {
-                                    searchResults = searchResults.filter { it != user }
-                                    loadFriendsList()
-                                    successMessage = "${user["nickname"]}님이 친구로 추가되었습니다."
-                                    MainScope().launch {
-                                        kotlinx.coroutines.delay(3000)
-                                        successMessage = ""
-                                    }
+                                    @Suppress("UNCHECKED_CAST")
+                                    val users = body["users"] as? List<Map<String, Any>> ?: emptyList()
+                                    searchResults = users
                                 } else {
-                                    val errorMsg = body?.get("error") as? String ?: "친구 추가 실패"
+                                    val errorMsg = body?.get("error") as? String ?: "검색 실패"
                                     errorLog = errorMsg
                                 }
                             } else {
-                                val errorMsg = "친구 추가 실패: ${response.code()}"
+                                val errorMsg = "검색 실패: ${response.code()}"
                                 errorLog = errorMsg
                             }
                         }
-                        override fun onFailure(
-                            call: retrofit2.Call<Map<String, Any>>,
-                            t: Throwable
-                        ) {
+                        override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
+                            isSearching = false
                             val errorMsg = "네트워크 오류: ${t.message}"
                             errorLog = errorMsg
                         }
                     })
-                } else {
-                    errorLog = "사용자 ID 파싱 실패: user['gid'] = ${user["gid"]}, type = ${user["gid"]?.javaClass?.name}"
-                }
-            },
-            onDeleteFriend = { friend ->
-                apiService.deleteFriend(
-                    gid = gid,
-                    friendGid = friend.gid
-                ).enqueue(object : retrofit2.Callback<Map<String, Any>> {
-                    override fun onResponse(
-                        call: retrofit2.Call<Map<String, Any>>,
-                        response: retrofit2.Response<Map<String, Any>>
-                    ) {
-                        if (response.isSuccessful && response.body()?.get("success") == true) {
-                            loadFriendsList()
-                            successMessage = "${friend.nickname}님이 친구 목록에서 삭제되었습니다."
-                        } else {
-                            val errorMsg = response.body()?.get("error") as? String ?: "친구 삭제 실패"
+                },
+                onAddFriend = { user ->
+                    println("[DEBUG] 친구 추가 버튼 클릭됨")
+                    Toast.makeText(context, "onAddFriend 호출됨", Toast.LENGTH_SHORT).show()
+                    val friendGid = when (val id = user["gid"]) {
+                        is Int -> id
+                        is Long -> id.toInt()
+                        is String -> id.toIntOrNull()
+                        else -> null
+                    }
+                    Log.d("FriendAdd", "내 gid = $gid, 친구 gid = $friendGid, user['gid'] = ${user["gid"]}, userId type = ${user["gid"]?.javaClass?.name}")
+                    if (friendGid != null) {
+                        apiService.addFriend(
+                            gid = gid,
+                            friendGid = friendGid
+                        ).enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                            override fun onResponse(
+                                call: retrofit2.Call<Map<String, Any>>,
+                                response: retrofit2.Response<Map<String, Any>>
+                            ) {
+                                if (response.isSuccessful) {
+                                    val body = response.body()
+                                    if (body != null && body["success"] == true) {
+                                        searchResults = searchResults.filter { it != user }
+                                        loadFriendsList()
+                                        successMessage = "${user["nickname"]}님이 친구로 추가되었습니다."
+                                        MainScope().launch {
+                                            kotlinx.coroutines.delay(3000)
+                                            successMessage = ""
+                                        }
+                                    } else {
+                                        val errorMsg = body?.get("error") as? String ?: "친구 추가 실패"
+                                        errorLog = errorMsg
+                                    }
+                                } else {
+                                    val errorMsg = "친구 추가 실패: ${response.code()}"
+                                    errorLog = errorMsg
+                                }
+                            }
+                            override fun onFailure(
+                                call: retrofit2.Call<Map<String, Any>>,
+                                t: Throwable
+                            ) {
+                                val errorMsg = "네트워크 오류: ${t.message}"
+                                errorLog = errorMsg
+                            }
+                        })
+                    } else {
+                        errorLog = "사용자 ID 파싱 실패: user['gid'] = ${user["gid"]}, type = ${user["gid"]?.javaClass?.name}"
+                    }
+                },
+                onDeleteFriend = { friend ->
+                    apiService.deleteFriend(
+                        gid = gid,
+                        friendGid = friend.gid
+                    ).enqueue(object : retrofit2.Callback<Map<String, Any>> {
+                        override fun onResponse(
+                            call: retrofit2.Call<Map<String, Any>>,
+                            response: retrofit2.Response<Map<String, Any>>
+                        ) {
+                            if (response.isSuccessful && response.body()?.get("success") == true) {
+                                loadFriendsList()
+                                successMessage = "${friend.nickname}님이 친구 목록에서 삭제되었습니다."
+                            } else {
+                                val errorMsg = response.body()?.get("error") as? String ?: "친구 삭제 실패"
+                                errorLog = errorMsg
+                            }
+                        }
+                        override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
+                            val errorMsg = "네트워크 오류: ${t.message}"
                             errorLog = errorMsg
                         }
-                    }
-                    override fun onFailure(call: retrofit2.Call<Map<String, Any>>, t: Throwable) {
-                        val errorMsg = "네트워크 오류: ${t.message}"
-                        errorLog = errorMsg
-                    }
-                })
-            },
-            onShowMessage = { successMessage = it },
-            friendPath = selectedFriendPath,
-            onShowFriendPath = { friendId ->
-                selectedFriendId = friendId
-                refreshFriendPath(friendId)
-            },
-            onMoveToMyLocation = handleMoveToMyLocation,
-            modifier = Modifier.padding(innerPadding)
-        )
+                    })
+                },
+                onShowMessage = { successMessage = it },
+                friendPath = selectedFriendPath,
+                onShowFriendPath = { friendId ->
+                    selectedFriendId = friendId
+                    refreshFriendPath(friendId)
+                },
+                onMoveToMyLocation = handleMoveToMyLocation,
+                modifier = Modifier.padding(innerPadding)
+            )
+        }
     }
 
     // 5초마다 자동 경로 갱신 LaunchedEffect 추가
@@ -827,7 +909,7 @@ fun FriendLocationScreen(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .heightIn(min = 200.dp, max = 400.dp)
-                .padding(start = 8.dp, end = 8.dp),
+                .padding(start = 8.dp, end = 8.dp, bottom = 50.dp),
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
             tonalElevation = 8.dp,
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
@@ -851,18 +933,21 @@ fun FriendLocationScreen(
                 Spacer(Modifier.height(8.dp))
                 if (showSearch) {
                     // 검색 UI
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = onSearchQueryChange,
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("이메일 또는 닉네임") },
-                        singleLine = true
-                    )
-                    Button(
-                        onClick = onSearch,
-                        enabled = searchQuery.isNotEmpty() && !isSearching,
-                        modifier = Modifier.align(Alignment.End).padding(top = 4.dp, bottom = 8.dp)
-                    ) { Text("검색") }
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = onSearchQueryChange,
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("이메일 또는 닉네임") },
+                            singleLine = true
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Button(
+                            onClick = onSearch,
+                            enabled = searchQuery.isNotEmpty() && !isSearching,
+                            modifier = Modifier.height(56.dp)
+                        ) { Text("검색") }
+                    }
                     if (isSearching) {
                         CircularProgressIndicator(modifier = Modifier.padding(16.dp))
                     } else if (searchResults.isNotEmpty()) {
@@ -876,6 +961,13 @@ fun FriendLocationScreen(
                                 }
                                 val isMe = userGid == myGid
                                 val isAlreadyFriend = friends.any { it.gid == userGid }
+                                val profileImageUrl = user["profileImageUrl"] as? String
+                                    ?: user["profile_image_url"] as? String
+                                    ?: ""
+                                val profileImageUrlWithTimestamp = if (profileImageUrl.isNotBlank()) {
+                                    profileImageUrl + "?ts=" + System.currentTimeMillis()
+                                } else ""
+                                Log.d("PROFILE_IMAGE_DEBUG", "userGid=$userGid, profileImageUrl=$profileImageUrl, profileImageUrlWithTimestamp=$profileImageUrlWithTimestamp")
                                 Card(
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                                     elevation = CardDefaults.cardElevation(2.dp)
@@ -885,21 +977,38 @@ fun FriendLocationScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Column {
-                                            Text(
-                                                user["nickname"] as? String ?: "",
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.clickable {
-                                                    if (userGid != null) onFriendNavigate(com.example.myposition.model.FriendLocation(
-                                                        gid = userGid,
-                                                        nickname = user["nickname"] as? String ?: "",
-                                                        latitude = user["latitude"] as? Double ?: 0.0,
-                                                        longitude = user["longitude"] as? Double ?: 0.0,
-                                                        updatedAt = ""
-                                                    ))
-                                                }
+                                        if (profileImageUrlWithTimestamp.isNotBlank()) {
+                                            val painter = rememberAsyncImagePainter(
+                                                ImageRequest.Builder(LocalContext.current)
+                                                    .data(profileImageUrlWithTimestamp)
+                                                    .diskCachePolicy(CachePolicy.DISABLED)
+                                                    .memoryCachePolicy(CachePolicy.DISABLED)
+                                                    .build()
                                             )
+                                            Image(
+                                                painter = painter,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(40.dp).clip(CircleShape),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
+                                            Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(40.dp).clip(CircleShape))
                                         }
+                                        Spacer(Modifier.width(12.dp))
+                                        Text(
+                                            user["nickname"] as? String ?: "",
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.clickable {
+                                                if (userGid != null) onFriendNavigate(com.example.myposition.model.FriendLocation(
+                                                    gid = userGid,
+                                                    nickname = user["nickname"] as? String ?: "",
+                                                    latitude = user["latitude"] as? Double ?: 0.0,
+                                                    longitude = user["longitude"] as? Double ?: 0.0,
+                                                    updatedAt = ""
+                                                ))
+                                            }
+                                        )
+                                        Spacer(Modifier.width(12.dp))
                                         when {
                                             isMe -> {
                                                 Text("나", color = Color.Gray)
@@ -924,16 +1033,19 @@ fun FriendLocationScreen(
                     // 친구 전체 목록 UI (닉네임, 이메일, 위치, 삭제)
                     LazyColumn {
                         items(friends) { friend ->
-                            val loc = friendLocations.find { it.gid == friend.gid }
-                            val distanceKm = if (loc != null && myLocation != null) {
-                                Log.d("DEBUG", "거리 계산: 내 위치 $myLocation, 친구 위치 $loc")
-                                val d = haversine(myLocation.latitude, myLocation.longitude, loc.latitude, loc.longitude)
-                                String.format("%.1fkm", d)
-                            } else {
-                                Log.d("DEBUG", "거리 계산 불가: myLocation=$myLocation, loc=$loc")
-                                "-"
+                            val loc = friendLocations.find { it.gid.toString() == friend.gid.toString() }
+                            val profileImageUrl = loc?.profileImageUrl ?: friend.profileImageUrl ?: ""
+                            Log.d("FRIEND_LIST_DEBUG", "friend=${friend}, loc=${loc}, profileImageUrl=$profileImageUrl")
+                            val distanceKm = remember(myLocation, loc) {
+                                if (loc != null && myLocation != null) {
+                                    Log.d("DEBUG", "거리 계산: 내 위치 $myLocation, 친구 위치 $loc")
+                                    val d = haversine(myLocation.latitude, myLocation.longitude, loc.latitude, loc.longitude)
+                                    String.format("%.1fkm", d)
+                                } else {
+                                    Log.d("DEBUG", "거리 계산 불가: myLocation=$myLocation, loc=$loc")
+                                    "-"
+                                }
                             }
-                            // 위치 갱신 상태 계산
                             val isRecentlyUpdated = loc?.updatedAt?.let {
                                 try {
                                     val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
@@ -947,9 +1059,24 @@ fun FriendLocationScreen(
                                     .fillMaxWidth()
                                     .padding(vertical = 8.dp)
                             ) {
-                                Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(40.dp).clip(CircleShape))
+                                if (profileImageUrl.isNotBlank()) {
+                                    val painter = rememberAsyncImagePainter(
+                                        ImageRequest.Builder(LocalContext.current)
+                                            .data(profileImageUrl)
+                                            .diskCachePolicy(CachePolicy.ENABLED)
+                                            .memoryCachePolicy(CachePolicy.ENABLED)
+                                            .build()
+                                    )
+                                    Image(
+                                        painter = painter,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(40.dp).clip(CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(40.dp).clip(CircleShape))
+                                }
                                 Spacer(Modifier.width(12.dp))
-                                // 갱신 상태 원 표시
                                 Box(
                                     modifier = Modifier
                                         .size(12.dp)
@@ -974,10 +1101,16 @@ fun FriendLocationScreen(
                                 IconButton(onClick = { onDeleteFriend(friend) }) {
                                     Icon(Icons.Default.Delete, contentDescription = "친구 삭제", tint = Color.Red)
                                 }
-                                Button(
+                                IconButton(
                                     onClick = { if (friend.gid != null) onShowFriendPath(friend.gid) },
                                     modifier = Modifier.padding(end = 8.dp)
-                                ) { Text("이동") }
+                                ) {
+                                    Image(
+                                        painter = painterResource(id = R.drawable.run),
+                                        contentDescription = "이동",
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
                             }
                         }
                     }

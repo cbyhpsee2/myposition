@@ -30,9 +30,10 @@ import com.example.myposition.model.Friend
 import com.example.myposition.model.FriendsListResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.clickable
 
 @Composable
-fun LoginScreen(onLoginSuccess: (String, String, Int) -> Unit) {
+fun LoginScreen(onLoginSuccess: (String, String, Int, String?) -> Unit) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
@@ -44,89 +45,98 @@ fun LoginScreen(onLoginSuccess: (String, String, Int) -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Button(
-            onClick = {
-                val activity = context as? Activity
-                if (activity != null) {
-                    isLoading = true
-                    UserApiClient.instance.loginWithKakaoTalk(activity) { token, error ->
-                        if (error != null) {
-                            UserApiClient.instance.loginWithKakaoAccount(activity) { token2, error2 ->
-                                if (error2 == null && token2 != null) {
-                                    UserApiClient.instance.me { user, error3 ->
-                                        val email = user?.kakaoAccount?.email ?: ""
-                                        val nickname = user?.kakaoAccount?.profile?.nickname ?: email.substringBefore("@")
-                                        // 서버에 email, nickname 보내서 user_id 받아오기
-                                        coroutineScope.launch {
-                                            try {
-                                                val api = RetrofitClient.apiService
-                                                Log.e("RegisterUser", "registerUser 호출 시작: email=$email, nickname=$nickname")
-                                                println("registerUser 호출 시작: email=$email, nickname=$nickname")
-                                                val response = withContext(Dispatchers.IO) {
-                                                    api.registerUser(email, "", nickname, null).execute()
+        // 카카오 로그인 이미지 버튼
+        Image(
+            painter = painterResource(id = R.drawable.kakao_login_medium_narrow),
+            contentDescription = "카카오 로그인",
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .clickable(enabled = !isLoading) {
+                    Log.d("LoginScreen", "onClick 호출")
+                    val activity = context as? Activity
+                    if (activity != null) {
+                        isLoading = true
+                        UserApiClient.instance.loginWithKakaoTalk(activity) { token, error ->
+                            if (error != null) {
+                                UserApiClient.instance.loginWithKakaoAccount(activity) { token2, error2 ->
+                                    if (error2 == null && token2 != null) {
+                                        UserApiClient.instance.me { user, error3 ->
+                                            val email = user?.kakaoAccount?.email ?: ""
+                                            val nickname = user?.kakaoAccount?.profile?.nickname ?: email.substringBefore("@")
+                                            val uid = user?.id?.toString() ?: ""
+                                            val profileImageUrl = user?.kakaoAccount?.profile?.profileImageUrl ?: ""
+                                            // 서버에 email, nickname, uid, profileImageUrl 보내서 user_id 받아오기
+                                            coroutineScope.launch {
+                                                try {
+                                                    val api = RetrofitClient.apiService
+                                                    Log.e("RegisterUser", "registerUser 호출 시작: email=$email, nickname=$nickname, uid=$uid, profileImageUrl=$profileImageUrl")
+                                                    println("registerUser 호출 시작: email=$email, nickname=$nickname, uid=$uid, profileImageUrl=$profileImageUrl")
+                                                    val response = withContext(Dispatchers.IO) {
+                                                        api.registerUser(email, "kakao", nickname, uid, profileImageUrl).execute()
+                                                    }
+                                                    val body = response.body()
+                                                    Log.e("RegisterUser", "registerUser 응답: $body")
+                                                    println("registerUser 응답: $body")
+                                                    val userId = if (response.isSuccessful && body != null && body["success"] == true) {
+                                                        (body["gid"] as? Number)?.toInt() ?: (body["gid"] as? String)?.toIntOrNull() ?: -1
+                                                    } else {
+                                                        -1
+                                                    }
+                                                    val profileImageUrlFromServer = body?.get("profile_image_url") as? String ?: profileImageUrl
+                                                    onLoginSuccess(email, nickname, userId, profileImageUrlFromServer)
+                                                } catch (e: Exception) {
+                                                    Log.e("RegisterUser", "registerUser 예외: ${e.message}", e)
+                                                    println("registerUser 예외: ${e.message}")
+                                                    errorMsg = "user_id 받아오기 실패: ${e.message}"
+                                                    onLoginSuccess(email, nickname, -1, null)
+                                                } finally {
+                                                    isLoading = false
                                                 }
-                                                val body = response.body()
-                                                Log.e("RegisterUser", "registerUser 응답: $body")
-                                                println("registerUser 응답: $body")
-                                                val userId = if (response.isSuccessful && body != null && body["success"] == true) {
-                                                    (body["gid"] as? Number)?.toInt() ?: (body["gid"] as? String)?.toIntOrNull() ?: -1
-                                                } else {
-                                                    -1
-                                                }
-                                                onLoginSuccess(email, nickname, userId)
-                                            } catch (e: Exception) {
-                                                Log.e("RegisterUser", "registerUser 예외: ${e.message}", e)
-                                                println("registerUser 예외: ${e.message}")
-                                                errorMsg = "user_id 받아오기 실패: ${e.message}"
-                                                onLoginSuccess(email, nickname, -1)
-                                            } finally {
-                                                isLoading = false
                                             }
                                         }
                                     }
                                 }
-                            }
-                        } else if (token != null) {
-                            UserApiClient.instance.me { user, error3 ->
-                                val email = user?.kakaoAccount?.email ?: ""
-                                val nickname = user?.kakaoAccount?.profile?.nickname ?: email.substringBefore("@")
-                                // 서버에 email, nickname 보내서 user_id 받아오기
-                                coroutineScope.launch {
-                                    try {
-                                        val api = RetrofitClient.apiService
-                                        Log.e("RegisterUser", "registerUser 호출 시작: email=$email, nickname=$nickname")
-                                        println("registerUser 호출 시작: email=$email, nickname=$nickname")
-                                        val response = withContext(Dispatchers.IO) {
-                                            api.registerUser(email, "", nickname, null).execute()
+                            } else if (token != null) {
+                                UserApiClient.instance.me { user, error3 ->
+                                    val email = user?.kakaoAccount?.email ?: ""
+                                    val nickname = user?.kakaoAccount?.profile?.nickname ?: email.substringBefore("@")
+                                    val uid = user?.id?.toString() ?: ""
+                                    val profileImageUrl = user?.kakaoAccount?.profile?.profileImageUrl ?: ""
+                                    // 서버에 email, nickname, uid, profileImageUrl 보내서 user_id 받아오기
+                                    coroutineScope.launch {
+                                        try {
+                                            val api = RetrofitClient.apiService
+                                            Log.e("RegisterUser", "registerUser 호출 시작: email=$email, nickname=$nickname, uid=$uid, profileImageUrl=$profileImageUrl")
+                                            println("registerUser 호출 시작: email=$email, nickname=$nickname, uid=$uid, profileImageUrl=$profileImageUrl")
+                                            val response = withContext(Dispatchers.IO) {
+                                                api.registerUser(email, "kakao", nickname, uid, profileImageUrl).execute()
+                                            }
+                                            val body = response.body()
+                                            Log.e("RegisterUser", "registerUser 응답: $body")
+                                            println("registerUser 응답: $body")
+                                            val userId = if (response.isSuccessful && body != null && body["success"] == true) {
+                                                (body["gid"] as? Number)?.toInt() ?: (body["gid"] as? String)?.toIntOrNull() ?: -1
+                                            } else {
+                                                -1
+                                            }
+                                            val profileImageUrlFromServer = body?.get("profile_image_url") as? String ?: profileImageUrl
+                                            onLoginSuccess(email, nickname, userId, profileImageUrlFromServer)
+                                        } catch (e: Exception) {
+                                            Log.e("RegisterUser", "registerUser 예외: ${e.message}", e)
+                                            println("registerUser 예외: ${e.message}")
+                                            errorMsg = "user_id 받아오기 실패: ${e.message}"
+                                            onLoginSuccess(email, nickname, -1, null)
+                                        } finally {
+                                            isLoading = false
                                         }
-                                        val body = response.body()
-                                        Log.e("RegisterUser", "registerUser 응답: $body")
-                                        println("registerUser 응답: $body")
-                                        val userId = if (response.isSuccessful && body != null && body["success"] == true) {
-                                            (body["gid"] as? Number)?.toInt() ?: (body["gid"] as? String)?.toIntOrNull() ?: -1
-                                        } else {
-                                            -1
-                                        }
-                                        onLoginSuccess(email, nickname, userId)
-                                    } catch (e: Exception) {
-                                        Log.e("RegisterUser", "registerUser 예외: ${e.message}", e)
-                                        println("registerUser 예외: ${e.message}")
-                                        errorMsg = "user_id 받아오기 실패: ${e.message}"
-                                        onLoginSuccess(email, nickname, -1)
-                                    } finally {
-                                        isLoading = false
                                     }
                                 }
                             }
                         }
                     }
-                }
-            },
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            enabled = !isLoading
-        ) {
-            Text("카카오로 로그인", color = Color(0xFFFEE500), fontWeight = FontWeight.Bold, fontSize = 18.sp)
-        }
+                },
+        )
         if (isLoading) {
             CircularProgressIndicator(modifier = Modifier.padding(16.dp))
         }

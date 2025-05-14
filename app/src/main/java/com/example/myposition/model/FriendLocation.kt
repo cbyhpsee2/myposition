@@ -8,5 +8,6 @@ data class FriendLocation(
     val nickname: String,
     val latitude: Double,
     val longitude: Double,
-    @SerializedName("updated_at") val updatedAt: String
+    @SerializedName("updated_at") val updatedAt: String,
+    @SerializedName("profile_image_url") val profileImageUrl: String? = null
 ) 
