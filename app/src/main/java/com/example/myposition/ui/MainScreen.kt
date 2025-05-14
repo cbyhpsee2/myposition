@@ -375,6 +375,7 @@ fun MainScreen(
     }
     var selectedFriendPath by remember { mutableStateOf<List<LatLng>>(emptyList()) }
     var selectedFriendId by remember { mutableStateOf<Int?>(null) }
+    var latestUpdatedAtMap by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }
     fun refreshFriendPath(friendId: Int) {
         apiService.getFriendLocationHistory(friendId).enqueue(object : retrofit2.Callback<com.example.myposition.model.FriendLocationHistoryResponse> {
             override fun onResponse(
@@ -419,6 +420,9 @@ fun MainScreen(
                             call: retrofit2.Call<com.example.myposition.model.FriendLocationResponse>,
                             response: retrofit2.Response<com.example.myposition.model.FriendLocationResponse>
                         ) {
+                            Log.d("FRIEND_LOC_DEBUG", "raw: ${response.raw()}")
+                            Log.d("FRIEND_LOC_DEBUG", "body: ${response.body()}")
+                            Log.d("FRIEND_LOC_DEBUG", "errorBody: ${response.errorBody()?.string()}")
                             isFriendLocationsLoading = false
                             val locBody = response.body()
                             Log.d("FriendLoc", "getFriendsLocations 응답 body: $locBody")
@@ -430,7 +434,8 @@ fun MainScreen(
                                             "nickname" to loc.nickname,
                                             "latitude" to loc.latitude,
                                             "longitude" to loc.longitude,
-                                            "profileImageUrl" to (loc.profileImageUrl ?: "")
+                                            "profileImageUrl" to (loc.profileImageUrl ?: ""),
+                                            "createdAt" to (loc.createdAt ?: "") // 반드시 추가!
                                         )
                                     }
                                 } catch (e: Exception) {
@@ -440,6 +445,7 @@ fun MainScreen(
                             } else {
                                 Log.e("FriendLoc", "친구 위치 로드 실패")
                             }
+                            Log.d("FRIEND_LOC_LIST", friendLocations.toString())
                         }
                         override fun onFailure(
                             call: retrofit2.Call<com.example.myposition.model.FriendLocationResponse>,
@@ -486,7 +492,8 @@ fun MainScreen(
                                     "nickname" to loc.nickname,
                                     "latitude" to loc.latitude,
                                     "longitude" to loc.longitude,
-                                    "profileImageUrl" to (loc.profileImageUrl ?: "")
+                                    "profileImageUrl" to (loc.profileImageUrl ?: ""),
+                                    "createdAt" to (loc.createdAt ?: "") // ★ 반드시 추가!
                                 )
                             }
                             lastFriendLocationUpdateTime = System.currentTimeMillis()
@@ -630,6 +637,31 @@ fun MainScreen(
         }
     }
 
+    LaunchedEffect(friendList) {
+        val updatedMap = mutableMapOf<Int, String>()
+        friendList.forEach { friend ->
+            apiService.getFriendLocationHistory(friend.gid).enqueue(object : retrofit2.Callback<com.example.myposition.model.FriendLocationHistoryResponse> {
+                override fun onResponse(
+                    call: retrofit2.Call<com.example.myposition.model.FriendLocationHistoryResponse>,
+                    response: retrofit2.Response<com.example.myposition.model.FriendLocationHistoryResponse>
+                ) {
+                    val body = response.body()
+                    if (response.isSuccessful && body != null && body.success && body.locations.isNotEmpty()) {
+                        val latest = body.locations.maxByOrNull { it.createdAt ?: "" }
+                        if (latest != null) {
+                            updatedMap[friend.gid] = latest.createdAt ?: ""
+                            latestUpdatedAtMap = updatedMap.toMap() // 상태 갱신
+                        }
+                    }
+                }
+                override fun onFailure(
+                    call: retrofit2.Call<com.example.myposition.model.FriendLocationHistoryResponse>,
+                    t: Throwable
+                ) {}
+            })
+        }
+    }
+
     InstagramTheme {
         // 상태바 배경색 흰색으로 지정
         val view = LocalView.current
@@ -666,7 +698,8 @@ fun MainScreen(
                             nickname = locMap["nickname"] as? String ?: "",
                             latitude = (locMap["latitude"] as? Number)?.toDouble() ?: return@mapNotNull null,
                             longitude = (locMap["longitude"] as? Number)?.toDouble() ?: return@mapNotNull null,
-                            updatedAt = ""
+                            profileImageUrl = locMap["profileImageUrl"] as? String ?: "",
+                            createdAt = locMap["createdAt"] as? String
                         )
                     } catch (e: Exception) { null }
                 },
@@ -715,7 +748,6 @@ fun MainScreen(
                 },
                 onAddFriend = { user ->
                     println("[DEBUG] 친구 추가 버튼 클릭됨")
-                    //Toast.makeText(context, "onAddFriend 호출됨", Toast.LENGTH_SHORT).show()
                     val friendGid = when (val id = user["gid"]) {
                         is Int -> id
                         is Long -> id.toInt()
@@ -797,7 +829,8 @@ fun MainScreen(
                 userProfileImageUrl = userProfileImageUrl,
                 userNickname = userNickname,
                 userEmail = userEmail,
-                onLogout = onLogout
+                onLogout = onLogout,
+                latestUpdatedAtMap = latestUpdatedAtMap
             )
         }
     }
@@ -835,7 +868,8 @@ fun FriendLocationScreen(
     userProfileImageUrl: String,
     userNickname: String,
     userEmail: String,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    latestUpdatedAtMap: Map<Int, String>
 ) {
     var showSearch by remember { mutableStateOf(false) }
     Box(modifier = Modifier.fillMaxSize()) {
@@ -1031,7 +1065,8 @@ fun FriendLocationScreen(
                                                     nickname = user["nickname"] as? String ?: "",
                                                     latitude = user["latitude"] as? Double ?: 0.0,
                                                     longitude = user["longitude"] as? Double ?: 0.0,
-                                                    updatedAt = ""
+                                                    profileImageUrl = user["profileImageUrl"] as? String ?: user["profile_image_url"] as? String ?: "",
+                                                    createdAt = user["createdAt"] as? String
                                                 ))
                                             }
                                         )
@@ -1059,10 +1094,11 @@ fun FriendLocationScreen(
                 } else {
                     // 친구 전체 목록 UI (닉네임, 이메일, 위치, 삭제)
                     LazyColumn {
+                        Log.d("FRIEND_LIST_DEBUG1", "friends=${friends}")
                         items(friends) { friend ->
-                            val loc = friendLocations.find { it.gid.toString() == friend.gid.toString() }
+                            val loc = friendLocations.find { it.gid == friend.gid }
                             val profileImageUrl = loc?.profileImageUrl ?: friend.profileImageUrl ?: ""
-                            Log.d("FRIEND_LIST_DEBUG", "friend=${friend}, loc=${loc}, profileImageUrl=$profileImageUrl")
+                            Log.d("FRIEND_LIST_DEBUG2", "friend=${friend}, loc=${loc}")
                             val distanceKm = remember(myLocation, loc) {
                                 if (loc != null && myLocation != null) {
                                     Log.d("DEBUG", "거리 계산: 내 위치 $myLocation, 친구 위치 $loc")
@@ -1073,13 +1109,29 @@ fun FriendLocationScreen(
                                     "-"
                                 }
                             }
-                            val isRecentlyUpdated = loc?.updatedAt?.let {
+                            val createdAtForStatus = loc?.createdAt ?: ""
+                            Log.d(
+                                "RECENTLY_UPDATED_DEBUG",
+                                "createdAtForStatus=$createdAtForStatus, millis=" + try {
+                                    val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                                    fmt.timeZone = TimeZone.getTimeZone("Asia/Seoul")
+                                    fmt.parse(createdAtForStatus)?.time
+                                } catch (e: Exception) { null } +
+                                ", now=" + System.currentTimeMillis() +
+                                ", diff=" + try {
+                                    val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                                    fmt.timeZone = TimeZone.getTimeZone("Asia/Seoul")
+                                    System.currentTimeMillis() - (fmt.parse(createdAtForStatus)?.time ?: 0L)
+                                } catch (e: Exception) { null }
+                            )
+                            val isRecentlyUpdated = createdAtForStatus.let {
                                 try {
                                     val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                                    fmt.timeZone = TimeZone.getTimeZone("Asia/Seoul")
                                     val updated = fmt.parse(it)?.time ?: 0L
                                     System.currentTimeMillis() - updated < 40_000 // 40초 이내면 갱신중
                                 } catch (e: Exception) { false }
-                            } ?: false
+                            }
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
@@ -1104,20 +1156,6 @@ fun FriendLocationScreen(
                                     Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(40.dp).clip(CircleShape))
                                 }
                                 Spacer(Modifier.width(12.dp))
-                                // 갱신 상태 표시: isRecentlyUpdated면 ProgressIndicator, 아니면 동그라미
-                                if (isRecentlyUpdated) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        color = Color.Green,
-                                        strokeWidth = 2.dp
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(12.dp)
-                                            .background(Color.Red, CircleShape)
-                                    )
-                                }
                                 Column(Modifier.weight(1f)) {
                                     Text(
                                         friend.nickname,
@@ -1145,6 +1183,19 @@ fun FriendLocationScreen(
                                         painter = painterResource(id = R.drawable.run2),
                                         contentDescription = "이동",
                                         modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                if (isRecentlyUpdated) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        color = Color.Green,
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .background(Color.Red, CircleShape)
                                     )
                                 }
                             }
