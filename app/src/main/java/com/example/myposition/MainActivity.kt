@@ -17,6 +17,7 @@ import com.example.myposition.ui.theme.MyPositionTheme
 import com.kakao.sdk.common.KakaoSdk
 import com.kakao.sdk.user.UserApiClient
 import com.kakao.sdk.common.util.Utility
+import com.example.myposition.util.*
 
 class MainActivity : ComponentActivity() {
     private val locationPermissionRequest = registerForActivityResult(
@@ -61,12 +62,15 @@ class MainActivity : ComponentActivity() {
         
         enableEdgeToEdge()
         
+        // 자동로그인 정보 불러오기
+        val (savedEmail, savedNickname, savedUserId, savedProfileImageUrl) = getLoginInfo(this)
+
         setContent {
-            var isLoggedIn by remember { mutableStateOf(false) }
-            var userEmail by remember { mutableStateOf("") }
-            var userNickname by remember { mutableStateOf("") }
-            var userId by remember { mutableStateOf(-1) }
-            var userProfileImageUrl by remember { mutableStateOf("") }
+            var isLoggedIn by remember { mutableStateOf(savedUserId > 0) }
+            var userEmail by remember { mutableStateOf(savedEmail ?: "") }
+            var userNickname by remember { mutableStateOf(savedNickname ?: "") }
+            var userId by remember { mutableStateOf(savedUserId) }
+            var userProfileImageUrl by remember { mutableStateOf(savedProfileImageUrl ?: "") }
             MyPositionTheme {
                 if (!isLoggedIn) {
                     LoginScreen(onLoginSuccess = { email, nickname, id, profileImageUrl ->
@@ -88,6 +92,7 @@ class MainActivity : ComponentActivity() {
                             userNickname = ""
                             userId = -1
                             userProfileImageUrl = ""
+                            clearLoginInfo(this@MainActivity)
                         },
                         userInfo = "",
                         userId = userId,

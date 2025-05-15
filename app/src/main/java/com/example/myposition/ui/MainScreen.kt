@@ -79,6 +79,11 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import androidx.compose.ui.res.painterResource
 import com.example.myposition.R
+import com.example.myposition.util.getLimit
+import com.example.myposition.util.saveLimit
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.OutlinedTextFieldDefaults
 
 // --- Instagram 스타일 컬러/테마 정의 ---
 object InstagramColors {
@@ -376,31 +381,47 @@ fun MainScreen(
     var selectedFriendPath by remember { mutableStateOf<List<LatLng>>(emptyList()) }
     var selectedFriendId by remember { mutableStateOf<Int?>(null) }
     var latestUpdatedAtMap by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }
-    fun refreshFriendPath(friendId: Int) {
-        apiService.getFriendLocationHistory(friendId).enqueue(object : retrofit2.Callback<com.example.myposition.model.FriendLocationHistoryResponse> {
-            override fun onResponse(
-                call: retrofit2.Call<com.example.myposition.model.FriendLocationHistoryResponse>,
-                response: retrofit2.Response<com.example.myposition.model.FriendLocationHistoryResponse>
-            ) {
-                val body = response.body()
-                Log.d("DEBUG", "API 응답 raw: ${response.raw()}")
-                Log.d("DEBUG", "API 응답 body: $body")
-                if (response.isSuccessful && body != null && body.success) {
-                    Log.d("DEBUG", "API 반환 locations: ${body.locations}")
-                    selectedFriendPath = body.locations.map { LatLng(it.latitude, it.longitude) }
-                } else {
-                    Log.d("DEBUG", "API 실패 또는 데이터 없음: ${response.errorBody()?.string()}")
+
+    fun refreshFriendPath(friendId: Int, limit: Int) {
+        Log.d("REFRESH_PATH", "refreshFriendPath 호출: friendId=$friendId, limit=$limit")
+        apiService.getFriendLocationHistory(friendId, limit = limit)
+            .enqueue(object : retrofit2.Callback<com.example.myposition.model.FriendLocationHistoryResponse> {
+                override fun onResponse(
+                    call: retrofit2.Call<com.example.myposition.model.FriendLocationHistoryResponse>,
+                    response: retrofit2.Response<com.example.myposition.model.FriendLocationHistoryResponse>
+                ) {
+                    if (response.isSuccessful) {
+                        val body = response.body()
+                        if (body != null && body.success) {
+                            val locations = body.locations
+                            Log.d("REFRESH_PATH", "경로 로드 성공: ${locations.size}개")
+                            selectedFriendPath = locations.map { LatLng(it.latitude, it.longitude) }
+                        } else {
+                            Log.e("REFRESH_PATH", "경로 응답 실패: $body")
+                            selectedFriendPath = emptyList()
+                        }
+                    } else {
+                        Log.e("REFRESH_PATH", "경로 응답 코드 에러: ${response.code()}")
+                        selectedFriendPath = emptyList()
+                    }
+                }
+
+                override fun onFailure(
+                    call: retrofit2.Call<com.example.myposition.model.FriendLocationHistoryResponse>,
+                    t: Throwable
+                ) {
+                    Log.e("REFRESH_PATH", "네트워크 오류: ${t.message}", t)
                     selectedFriendPath = emptyList()
                 }
-            }
-            override fun onFailure(
-                call: retrofit2.Call<com.example.myposition.model.FriendLocationHistoryResponse>,
-                t: Throwable
-            ) {
-                Log.d("DEBUG", "API 호출 실패: ${t.message}")
-                selectedFriendPath = emptyList()
-            }
-        })
+            })
+    }
+
+
+    var showSettings by remember { mutableStateOf(false) }
+    var limitState by rememberSaveable { mutableStateOf(getLimit(context)) }
+    fun setLimitState(newLimit: Int) {
+        limitState = newLimit
+        saveLimit(context, newLimit)
     }
 
     // 친구 목록 로드 함수 (최상단으로 이동)
@@ -640,12 +661,14 @@ fun MainScreen(
     LaunchedEffect(friendList) {
         val updatedMap = mutableMapOf<Int, String>()
         friendList.forEach { friend ->
-            apiService.getFriendLocationHistory(friend.gid).enqueue(object : retrofit2.Callback<com.example.myposition.model.FriendLocationHistoryResponse> {
+            Log.d("LIMIT_DEBUG", "getFriendLocationHistory: friendId=${friend.gid}, limit=$limitState")
+            apiService.getFriendLocationHistory(friend.gid, limit = limitState).enqueue(object : retrofit2.Callback<com.example.myposition.model.FriendLocationHistoryResponse> {
                 override fun onResponse(
                     call: retrofit2.Call<com.example.myposition.model.FriendLocationHistoryResponse>,
                     response: retrofit2.Response<com.example.myposition.model.FriendLocationHistoryResponse>
                 ) {
                     val body = response.body()
+                    Log.d("LIMIT_DEBUG", "API 응답 locations.size=${body?.locations?.size}")
                     if (response.isSuccessful && body != null && body.success && body.locations.isNotEmpty()) {
                         val latest = body.locations.maxByOrNull { it.createdAt ?: "" }
                         if (latest != null) {
@@ -659,6 +682,12 @@ fun MainScreen(
                     t: Throwable
                 ) {}
             })
+        }
+    }
+
+    LaunchedEffect(limitState, selectedFriendId) {
+        selectedFriendId?.let { friendId ->
+            refreshFriendPath(friendId, limitState)
         }
     }
 
@@ -819,10 +848,11 @@ fun MainScreen(
                     })
                 },
                 onShowMessage = { successMessage = it },
-                friendPath = selectedFriendPath,
+                friendPath = selectedFriendPath.take(limitState),
                 onShowFriendPath = { friendId ->
                     selectedFriendId = friendId
-                    refreshFriendPath(friendId)
+                    selectedFriendPath = emptyList()
+                    refreshFriendPath(friendId, limitState)
                 },
                 onMoveToMyLocation = handleMoveToMyLocation,
                 modifier = Modifier.padding(innerPadding),
@@ -830,7 +860,12 @@ fun MainScreen(
                 userNickname = userNickname,
                 userEmail = userEmail,
                 onLogout = onLogout,
-                latestUpdatedAtMap = latestUpdatedAtMap
+                latestUpdatedAtMap = latestUpdatedAtMap,
+                selectedFriendId = selectedFriendId,
+                setSelectedFriendId = { selectedFriendId = it },
+                refreshFriendPath = { friendId, limit -> refreshFriendPath(friendId, limit) },
+                limitState = limitState,
+                setLimitState = ::setLimitState
             )
         }
     }
@@ -838,7 +873,7 @@ fun MainScreen(
     // 5초마다 자동 경로 갱신 LaunchedEffect 추가
     LaunchedEffect(selectedFriendId) {
         while (selectedFriendId != null) {
-            refreshFriendPath(selectedFriendId!!)
+            refreshFriendPath(selectedFriendId!!, limitState)
             kotlinx.coroutines.delay(5000)
         }
     }
@@ -869,9 +904,18 @@ fun FriendLocationScreen(
     userNickname: String,
     userEmail: String,
     onLogout: () -> Unit,
-    latestUpdatedAtMap: Map<Int, String>
+    latestUpdatedAtMap: Map<Int, String>,
+    selectedFriendId: Int?,
+    setSelectedFriendId: (Int?) -> Unit,
+    refreshFriendPath: (Int, Int) -> Unit,
+    limitState: Int,
+    setLimitState: (Int) -> Unit
 ) {
     var showSearch by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    var limitInput by rememberSaveable { mutableStateOf(limitState.toString()) }
+
     Box(modifier = Modifier.fillMaxSize()) {
         // 지도 전체화면
         NaverMapScreen(
@@ -896,7 +940,7 @@ fun FriendLocationScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .heightIn(min = 200.dp, max = 400.dp)
+                .heightIn(min = 300.dp, max = 400.dp)
                 .padding(start = 8.dp, end = 8.dp, bottom = 48.dp),
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
             shadowElevation = 4.dp,
@@ -989,6 +1033,56 @@ fun FriendLocationScreen(
                                 contentColor = if (!showSearch) Color.White else Color.Black
                             )
                         ) { Text("친구 목록") }
+                        Spacer(Modifier.width(8.dp))
+                        IconButton(onClick = { showSettings = !showSettings }) {
+                            Image(
+                                painter = painterResource(id = R.drawable.icon_settings),
+                                contentDescription = "설정",
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+                }
+                if (showSettings) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
+                        color = Color.Black,
+                        shape = RoundedCornerShape(16.dp),
+                        shadowElevation = 8.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("경로 최대 개수:", color = Color.White)
+                            Spacer(Modifier.width(8.dp))
+                            OutlinedTextField(
+                                value = limitInput,
+                                onValueChange = { value -> if (value.all { c -> c.isDigit() } && value.length <= 4) limitInput = value },
+                                modifier = Modifier.width(80.dp),
+                                singleLine = true,
+                                textStyle = LocalTextStyle.current.copy(color = Color.White),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color.White,
+                                    unfocusedBorderColor = Color.Gray,
+                                    cursorColor = Color.White
+                                )
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Button(onClick = {
+                                val parsed = limitInput.toIntOrNull()?.coerceIn(1, 5000) ?: 30
+                                setLimitState(parsed)
+                                Toast.makeText(context, "저장 완료: $parsed", Toast.LENGTH_SHORT).show()
+                                showSettings = false
+                                if (selectedFriendId != null) {
+                                    refreshFriendPath(selectedFriendId, parsed)
+                                }
+                            }) {
+                                Text("저장")
+                            }
+                        }
                     }
                 }
                 Spacer(Modifier.height(8.dp))

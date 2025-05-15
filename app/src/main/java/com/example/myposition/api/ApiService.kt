@@ -57,6 +57,6 @@ interface ApiService {
     @GET("friend_location_history/{friend_id}")
     fun getFriendLocationHistory(
         @Path("friend_id") friendId: Int,
-        @Query("limit") limit: Int = 30
+        @Query("limit") limit: Int = 10000
     ): Call<com.example.myposition.model.FriendLocationHistoryResponse>
 } 

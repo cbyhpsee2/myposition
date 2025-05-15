@@ -37,6 +37,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.background
+import android.content.Context
+import com.example.myposition.util.*
 
 @Composable
 fun LoginScreen(onLoginSuccess: (String, String, Int, String?) -> Unit) {
@@ -101,6 +103,7 @@ fun LoginScreen(onLoginSuccess: (String, String, Int, String?) -> Unit) {
                                                         -1
                                                     }
                                                     val profileImageUrlFromServer = body?.get("profile_image_url") as? String ?: profileImageUrl
+                                                    saveLoginInfo(context, email, nickname, userId, profileImageUrlFromServer)
                                                     onLoginSuccess(email, nickname, userId, profileImageUrlFromServer)
                                                 } catch (e: Exception) {
                                                     Log.e("RegisterUser", "registerUser 예외: ${e.message}", e)
@@ -138,6 +141,7 @@ fun LoginScreen(onLoginSuccess: (String, String, Int, String?) -> Unit) {
                                                 -1
                                             }
                                             val profileImageUrlFromServer = body?.get("profile_image_url") as? String ?: profileImageUrl
+                                            saveLoginInfo(context, email, nickname, userId, profileImageUrlFromServer)
                                             onLoginSuccess(email, nickname, userId, profileImageUrlFromServer)
                                         } catch (e: Exception) {
                                             Log.e("RegisterUser", "registerUser 예외: ${e.message}", e)
